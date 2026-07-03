@@ -1,0 +1,11 @@
+{:itonami.blueprint/id "cloud-itonami-6630"
+ :itonami.blueprint/name "Fund management activities"
+ :itonami.blueprint/isic-rev5 "6630"
+ :itonami.blueprint/domain :finance/fund-management
+ :itonami.blueprint/license "AGPL-3.0-or-later"
+ :itonami.blueprint/social-impact [:financial-inclusion :data-sovereignty :transparency]
+ :itonami.blueprint/governor :fund-management-governor
+ :itonami.blueprint/required-technologies [:robotics :identity :forms :dmn :bpmn :audit-ledger :securities]
+ :itonami.blueprint/optional-technologies []
+ :itonami.blueprint/status :public-oss
+ :itonami.blueprint/robotics true}
