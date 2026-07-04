@@ -1,4 +1,4 @@
-{:itonami.blueprint/id "cloud-itonami-6630"
+{:itonami.blueprint/id "cloud-itonami-isic-6630"
  :itonami.blueprint/name "Fund management activities"
  :itonami.blueprint/isic-rev5 "6630"
  :itonami.blueprint/domain :finance/fund-management

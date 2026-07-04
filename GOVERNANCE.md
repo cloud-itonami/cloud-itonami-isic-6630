@@ -1,6 +1,6 @@
 # Governance
 
-`cloud-itonami-6630` is an OSS open-business blueprint for fund management activities -- managing collective investment vehicles (mutual funds, pension-fund assets, etc.) on behalf of unitholders.
+`cloud-itonami-isic-6630` is an OSS open-business blueprint for fund management activities -- managing collective investment vehicles (mutual funds, pension-fund assets, etc.) on behalf of unitholders.
 Governance covers both the capability layer and the operator model.
 
 ## Maintainers

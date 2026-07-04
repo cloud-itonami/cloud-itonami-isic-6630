@@ -1,4 +1,4 @@
-# cloud-itonami-6630
+# cloud-itonami-isic-6630
 
 Open Business Blueprint for **ISIC Rev.5 6630**: Fund management activities.
 

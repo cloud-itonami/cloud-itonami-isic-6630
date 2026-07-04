@@ -2,7 +2,7 @@
 
 ## Classification
 
-- Repository: `cloud-itonami-6630`
+- Repository: `cloud-itonami-isic-6630`
 - ISIC Rev.5: `6630`
 - Activity: fund management activities -- managing collective investment vehicles (mutual funds, pension-fund assets, etc.) on behalf of unitholders
 - Social impact: financial inclusion, data sovereignty, transparent audit
