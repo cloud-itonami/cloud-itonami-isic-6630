@@ -2,51 +2,142 @@
 
 Open Business Blueprint for **ISIC Rev.5 6630**: Fund management activities.
 
-This repository designs a forkable OSS business for fund management activities -- managing collective investment vehicles (mutual funds, pension-fund assets, etc.) on behalf of unitholders -- run by a qualified, licensed operator so a community or
-independent professional never surrenders customer data and ledgers to a
-closed SaaS.
+This repository is the **management company (GP entity)** in a
+three-actor VC-fund system, the other two being `cloud-itonami-isic-6499`
+(the investment decision-maker: DD, deal sourcing, capital-call/
+commitment/distribution PROPOSALS) and `cloud-itonami-isic-6430` (the
+fund vehicle: LP subscriptions, capital-call notice issuance). This repo
+is the legal entity that earns management fees for running the fund --
+run by a qualified, licensed operator so a community or independent
+professional never surrenders customer data and ledgers to a closed
+SaaS.
 
 ## Robotics premise
 
 All cloud-itonami verticals are designed on the premise that a **robot performs
 the physical domain work**. Here a document-custody robot manages physical mandate/prospectus custody,
-under an actor that proposes actions and an independent **Fund Management Governor**
+under an actor that proposes actions and an independent **FundManagementGovernor**
 that gates them. The governor never dispatches hardware itself;
 `:high`/`:safety-critical` actions require human sign-off.
+
+## Relationship to `cloud-itonami-isic-6499` (the investment actor)
+
+**Three separate legal entities, three separate repos, no shared code --
+only a documented DATA CONTRACT.** See `cloud-itonami-isic-6430`'s
+README/ADR for the full three-actor picture. This repo's role: `vcfund.
+nav/fund-nav-report` (in the SEPARATE `cloud-itonami-isic-6499` repo)
+computes a management-fee accrual figure -- an ADVISORY calculation, not
+itself a real cash movement. It becomes one only when THIS company
+actually draws the fee.
+
+`fundmgmt.governor` NEVER trusts that upstream figure as-is. It
+independently re-derives the SAME flat-rate formula
+(`fundmgmt.registry/fee-accrued`, a deliberately SEPARATE
+re-implementation of `vcfund.nav/management-fee-accrued`'s base-case
+math, not a shared-library call) from the upstream report's own
+fee-basis/rate/years-elapsed, and compares the result against the
+report's claimed accrued amount. It ALSO independently checks the
+upstream-claimed rate against THIS company's own recorded mandate
+ceiling -- a check the investment actor has no concept of at all, since
+rate-cap compliance is fundamentally the management company's own
+fiduciary responsibility. And it refuses to draw the SAME billing period
+twice, off its own drawdown history -- a guard that needs no upstream
+comparison at all. Honestly bounded: unlike `cloud-itonami-isic-6430`'s
+governor (which independently re-derives its OWN `fee-basis`-equivalent,
+the pro-rata allocation, from its own subscription ledger), this company
+has no LP directory of its own and cannot independently re-derive
+`fee-basis` -- only reapply the rate*basis*years formula to whatever
+basis the upstream report claims (see `fundmgmt.governor`'s docstring).
 
 ## Core Contract
 
 ```text
-intake + identity + case/account records
+upstream vcfund fee-accrual report (a separate repo's calculation, read as a fact)
         |
         v
-FundManager-LLM -> Fund Management Governor -> hold, proceed, or human approval
-        |
-        v
-case/account ledger + evidence record + audit
+   ┌───────────────┐   proposal      ┌───────────────────────┐
+   │ FundManager-LLM│ ─────────────▶ │ FundManagementGovernor  │  (independent system)
+   │  (sealed)     │  + citations    │ invalid-rate-cap ·      │
+   └───────────────┘                 │ mandate-missing ·       │
+                             commit ◀────┼──────────▶ hold │ rate-exceeds-mandate ·
+                                 │             │              │ accrual-mismatch ·
+                           record + ledger  escalate ─▶ human │ double-draw
+                                             (ALWAYS for
+                                              :fee/drawdown)
 ```
 
-No automated proposal, by itself, can complete the following without governor
-approval and audit evidence: executing a rebalancing trade or drawing a management fee.
+No automated proposal, by itself, can draw a management fee without
+`FundManagementGovernor` approval and a human GP principal's sign-off.
+
+## Actuation
+
+**Drawing a management fee is never autonomous, at any phase, by
+construction.** It is the one real-world cash movement this company
+performs -- real money moving from the fund to the GP entity.
+`fundmgmt.governor/high-stakes` has one member, `:actuation/draw-fee`;
+`fundmgmt.phase` never puts it in any phase's `:auto` set. Two
+independent layers enforce this. `:mandate/record` moves no capital
+(still HARD-gated -- an out-of-range rate cap is un-overridable -- but
+not `high-stakes`), so it IS auto-eligible at phase 3.
+
+## Run
+
+```bash
+clojure -M:dev:run     # walk one clean mandate+drawdown lifecycle + four HARD-hold cases through the actor
+clojure -M:dev:test    # governor contract · phase invariants · store parity · registry conformance
+clojure -M:lint        # clj-kondo (errors fail; CI mirrors this)
+```
+
+## Layout
+
+| File | Role |
+|---|---|
+| `src/fundmgmt/store.cljc` | **Store** protocol -- `MemStore` ‖ `DatomicStore` (`langchain.db`) + append-only audit ledger + mandate/fee-drawdown history + double-draw-by-period check |
+| `src/fundmgmt/registry.cljc` | Investment-mandate draft + fee-drawdown draft records, `fee-accrued` (an INDEPENDENT re-implementation of `vcfund.nav/management-fee-accrued`'s base-case math -- see "Relationship") |
+| `src/fundmgmt/advisor.cljc` | **FundManager-LLM** -- `mock-advisor`; mandate-intake/fee-drawdown proposals (the latter reads an upstream `vcfund` fee-accrual report as a fact) |
+| `src/fundmgmt/governor.cljc` | **FundManagementGovernor** -- 4 HARD checks (invalid-rate-cap · mandate-missing · rate-exceeds-mandate · accrual-mismatch, independently re-verified) + a double-draw guard + 1 soft (confidence/actuation gate) |
+| `src/fundmgmt/phase.cljc` | **Phase 0→3** -- read-only → assisted intake → supervised (fee drawdown always human; mandate intake auto-eligible, no capital risk) |
+| `src/fundmgmt/operation.cljc` | **OperationActor** -- langgraph-clj StateGraph |
+| `src/fundmgmt/sim.cljc` | demo driver -- includes literal upstream fee-report fixtures matching `vcfund.nav/fund-nav-report`'s exact shape |
+| `test/fundmgmt/*_test.clj` | governor contract · phase invariants · store parity · registry conformance |
+
+## Business-process coverage (honest)
+
+This actor covers the ONE flagship cross-repo integration point
+(management-fee drawdown off an upstream investment-actor fee-accrual
+report) plus the mandate-intake foundation it depends on. It does **not**
+yet cover every offer this blueprint's `docs/business-model.md` lists:
+
+| Covered | Not covered (out of scope for this R0) |
+|---|---|
+| Investment-mandate (LPA-authorized fee-rate ceiling) intake, HARD-gated on the rate being a valid [0,1] fraction (`:mandate/record`) | Investment-guideline disclosure proposal beyond the fee-rate cap (sector/stage/concentration limits -- this blueprint's own Offer lists it; not yet a governed op here) |
+| Management-fee DRAWDOWN off an upstream `vcfund` (`cloud-itonami-isic-6499`) fee-accrual report, independently re-verified (formula recompute + rate-cap check) and double-draw-protected (`:fee/drawdown`) | Carry (GP profit-share) distribution off an upstream `vcfund` exit-distribution waterfall's `:total-to-gp` figure (the SAME integration pattern, not yet implemented) |
+| Immutable audit ledger for every mandate/drawdown decision | Rebalancing/trade execution (this blueprint's generic Offer lists it; not applicable to a VC fund, which does not rebalance public-market positions), real fund-accounting-system integration, tax/regulatory reporting |
+
+Extending coverage is additive: add the next gate as its own governed
+op with its own HARD checks and tests, following the SAME cross-repo
+"read an upstream fact, never trust it, independently re-verify" pattern
+this repo's one flagship op already establishes.
 
 ## Capability layer
 
 This blueprint resolves its technology stack via
 [`kotoba-lang/industry`](https://github.com/kotoba-lang/industry) (ISIC
-`6630`). Required capabilities are implemented by:
+`6630`). `fundmgmt.*` is a self-contained governed implementation -- it
+does not require the sibling `kotoba-lang/securities` capability lib
+directly, the same "self-contained sibling" relationship `vcfund.*` has
+to `kotoba-lang/insurance`.
 
-- [`kotoba-lang/securities`](https://github.com/kotoba-lang/securities)
-  -- position, trade, fund-NAV and mandate contracts
-
-See [`docs/business-model.md`](docs/business-model.md) and
-[`docs/operator-guide.md`](docs/operator-guide.md).
+See [`docs/business-model.md`](docs/business-model.md),
+[`docs/operator-guide.md`](docs/operator-guide.md) and
+[`docs/adr/0001-architecture.md`](docs/adr/0001-architecture.md).
 
 ## Maturity
 
-`:blueprint` -- this repository is the published business/operator design.
-The governed actor implementation (`FundManager-LLM` + `Fund Management Governor` as
-running code) is a follow-up, same as any other `:blueprint`-tier
-`cloud-itonami-*` entry in `kotoba-lang/industry`'s registry.
+`:implemented` -- `FundManager-LLM` + `FundManagementGovernor` run as
+real, tested code (see `Run` above), promoted from the originally-
+published `:blueprint`-tier scaffold. See `docs/adr/0001-architecture.md`
+for the history and the cross-repo integration design.
 
 ## License
 

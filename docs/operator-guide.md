@@ -6,8 +6,12 @@
 2. Import historical accounts/positions and counterparties.
 3. Run read-only validation of existing records against this blueprint's
    contracts.
-4. Configure the Fund Management Governor's hold/escalation policy.
-5. Publish a dry-run operation and audit export.
+4. Configure the FundManagementGovernor's hold/escalation policy.
+5. If deploying alongside `cloud-itonami-isic-6499` (the investment
+   actor), agree the transport for upstream fee-accrual reports (a
+   message queue, signed webhook, or shared `kotoba-server` pod) -- see
+   `docs/adr/0001-architecture.md` for the data contract.
+6. Publish a dry-run operation and audit export.
 
 ## Minimum Production Controls
 
