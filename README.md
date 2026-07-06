@@ -7,7 +7,8 @@ three-actor VC-fund system, the other two being `cloud-itonami-isic-6499`
 (the investment decision-maker: DD, deal sourcing, capital-call/
 commitment/distribution PROPOSALS) and `cloud-itonami-isic-6430` (the
 fund vehicle: LP subscriptions, capital-call notice issuance). This repo
-is the legal entity that earns management fees for running the fund --
+is the legal entity that earns management fees for running the fund and
+discloses guideline (sector/stage concentration) compliance to LPs --
 run by a qualified, licensed operator so a community or independent
 professional never surrenders customer data and ledgers to a closed
 SaaS.
@@ -61,38 +62,50 @@ records (a fund's LPA can authorize a management fee without yet
 authorizing carry distribution through this company at all), and
 refuses to distribute the SAME commitment's carry twice.
 
+A THIRD pattern, narrower still but a genuine two-sided cross-check
+rather than a one-sided recompute: `vcfund.concentration/concentration-
+report` reports what fraction of deployed capital sits in each
+portfolio `:sector`/`:investment-stage` -- a fact this company has no
+deal data of its own to independently recompute. `:guideline/disclose`
+compares that upstream-reported fraction against THIS company's OWN
+mandate-defined `:sector-caps`/`:stage-caps` -- a fact `vcfund` does not
+hold either (an LPA-authorized concentration limit is this company's
+own fiduciary record). Neither repo holds both halves of this check
+alone.
+
 ## Core Contract
 
 ```text
-upstream vcfund fee-accrual report / exit-distribution fact (a separate repo's calculation, read as a fact)
+upstream vcfund fee-accrual report / exit-distribution fact / concentration report (a separate repo's calculation, read as a fact)
         |
         v
    ┌───────────────┐   proposal      ┌───────────────────────┐
    │ FundManager-LLM│ ─────────────▶ │ FundManagementGovernor  │  (independent system)
    │  (sealed)     │  + citations    │ invalid-(carry-)rate-cap│
    └───────────────┘                 │ (carry-)mandate-missing │
-                             commit ◀────┼──────────▶ hold │ (carry-)rate-exceeds-mandate
+                             commit ◀────┼──────────▶ hold │ (carry-)rate-exceeds-mandate ·
                                  │             │              │ accrual/carry-mismatch ·
-                           record + ledger  escalate ─▶ human │ double-draw/-distribution
-                                             (ALWAYS for
-                                              :fee/drawdown /
-                                              :carry/distribute)
+                           record + ledger  escalate ─▶ human │ double-draw/-distribution ·
+                                             (ALWAYS for      │ guideline-mandate-missing ·
+                                              :fee/drawdown,    concentration-limit-exceeded
+                                              :carry/distribute
+                                              AND :guideline/disclose)
 ```
 
-No automated proposal, by itself, can draw a management fee or
-distribute GP carry without `FundManagementGovernor` approval and a
-human GP principal's sign-off.
+No automated proposal, by itself, can draw a management fee,
+distribute GP carry, or disclose guideline compliance without
+`FundManagementGovernor` approval and a human GP principal's sign-off.
 
 ## Actuation
 
-**Drawing a management fee or distributing GP carry is never
-autonomous, at any phase, by construction.** These are the two
-real-world cash movements this company performs -- real money moving
-between the fund and the GP entity, in the two economic forms a
-management company collects (fee, and carried interest).
-`fundmgmt.governor/high-stakes` has two members, `:actuation/draw-fee`
-and `:actuation/distribute-carry`; `fundmgmt.phase` never puts either in
-any phase's `:auto` set. Two independent layers enforce this.
+**Drawing a management fee, distributing GP carry, or disclosing
+guideline compliance is never autonomous, at any phase, by
+construction.** The first two are real cash movements between the fund
+and the GP entity; guideline disclosure is a compliance statement LPs
+will rely on. `fundmgmt.governor/high-stakes` has three members,
+`:actuation/draw-fee`, `:actuation/distribute-carry` and `:actuation/
+disclose-guidelines`; `fundmgmt.phase` never puts any of them in any
+phase's `:auto` set. Two independent layers enforce this.
 `:mandate/record` moves no capital (still HARD-gated -- an out-of-range
 rate cap is un-overridable -- but not `high-stakes`), so it IS
 auto-eligible at phase 3.
@@ -100,7 +113,7 @@ auto-eligible at phase 3.
 ## Run
 
 ```bash
-clojure -M:dev:run     # walk one clean mandate+drawdown+carry lifecycle + eight HARD-hold cases through the actor
+clojure -M:dev:run     # walk one clean mandate+drawdown+carry+guideline-disclosure lifecycle + ten HARD-hold cases through the actor
 clojure -M:dev:test    # governor contract · phase invariants · store parity · registry conformance
 clojure -M:lint        # clj-kondo (errors fail; CI mirrors this)
 ```
@@ -109,34 +122,37 @@ clojure -M:lint        # clj-kondo (errors fail; CI mirrors this)
 
 | File | Role |
 |---|---|
-| `src/fundmgmt/store.cljc` | **Store** protocol -- `MemStore` ‖ `DatomicStore` (`langchain.db`) + append-only audit ledger + mandate/fee-drawdown/carry-distribution history + double-draw-by-period AND double-distribution-by-commitment checks |
-| `src/fundmgmt/registry.cljc` | Investment-mandate draft (optional carry-rate-cap) + fee-drawdown draft + carry-distribution draft records, `fee-accrued`/`carry-accrued` (INDEPENDENT re-implementations of `vcfund.nav/management-fee-accrued`'s base-case math and `vcfund.registry/distribute-waterfall`'s `:gp-carry` split -- see "Relationship") |
-| `src/fundmgmt/advisor.cljc` | **FundManager-LLM** -- `mock-advisor`; mandate-intake/fee-drawdown/carry-distribution proposals (the latter two read an upstream `vcfund` fact as-is) |
-| `src/fundmgmt/governor.cljc` | **FundManagementGovernor** -- 8 HARD checks (invalid-(carry-)rate-cap · (carry-)mandate-missing · (carry-)rate-exceeds-mandate · accrual/carry-mismatch, independently re-verified) + double-draw/-distribution guards + 1 soft (confidence/actuation gate) |
-| `src/fundmgmt/phase.cljc` | **Phase 0→3** -- read-only → assisted intake → supervised (fee drawdown/carry distribution always human; mandate intake auto-eligible, no capital risk) |
+| `src/fundmgmt/store.cljc` | **Store** protocol -- `MemStore` ‖ `DatomicStore` (`langchain.db`) + append-only audit ledger + mandate/fee-drawdown/carry-distribution/guideline-disclosure history + double-draw-by-period AND double-distribution-by-commitment checks |
+| `src/fundmgmt/registry.cljc` | Investment-mandate draft (optional carry-rate-cap, sector-caps, stage-caps) + fee-drawdown draft + carry-distribution draft + guideline-disclosure draft records, `fee-accrued`/`carry-accrued` (INDEPENDENT re-implementations of `vcfund.nav/management-fee-accrued`'s base-case math and `vcfund.registry/distribute-waterfall`'s `:gp-carry` split -- see "Relationship") |
+| `src/fundmgmt/advisor.cljc` | **FundManager-LLM** -- `mock-advisor`; mandate-intake/fee-drawdown/carry-distribution/guideline-disclosure proposals (the latter three read an upstream `vcfund` fact as-is) |
+| `src/fundmgmt/governor.cljc` | **FundManagementGovernor** -- 10 HARD checks (invalid-(carry-)rate-cap · (carry-)mandate-missing · (carry-)rate-exceeds-mandate · accrual/carry-mismatch · guideline-mandate-missing · concentration-limit-exceeded) + double-draw/-distribution guards + 1 soft (confidence/actuation gate) |
+| `src/fundmgmt/phase.cljc` | **Phase 0→3** -- read-only → assisted intake → supervised (fee drawdown/carry distribution/guideline disclosure always human; mandate intake auto-eligible, no capital risk) |
 | `src/fundmgmt/operation.cljc` | **OperationActor** -- langgraph-clj StateGraph |
-| `src/fundmgmt/sim.cljc` | demo driver -- includes literal upstream fee-report/exit-distribution fixtures matching `vcfund.nav/fund-nav-report`'s/`vcfund.registry/distribute-waterfall`'s exact shapes |
+| `src/fundmgmt/sim.cljc` | demo driver -- includes literal upstream fee-report/exit-distribution/concentration-report fixtures matching `vcfund.nav/fund-nav-report`'s/`vcfund.registry/distribute-waterfall`'s/`vcfund.concentration/concentration-report`'s exact shapes |
 | `test/fundmgmt/*_test.clj` | governor contract · phase invariants · store parity · registry conformance |
 
 ## Business-process coverage (honest)
 
-This actor covers TWO flagship cross-repo integration points
-(management-fee drawdown AND GP carry distribution, both off upstream
-investment-actor facts) plus the mandate-intake foundation they depend
-on. It does **not** yet cover every offer this blueprint's `docs/
-business-model.md` lists:
+This actor covers THREE flagship cross-repo integration points
+(management-fee drawdown, GP carry distribution AND guideline-
+compliance disclosure, all off upstream investment-actor facts) plus
+the mandate-intake foundation they depend on. This is now every offer
+this blueprint's `docs/business-model.md` originally listed:
 
-| Covered | Not covered (out of scope for this R0) |
+| Covered | Not covered (out of scope by design) |
 |---|---|
-| Investment-mandate (LPA-authorized fee-rate ceiling, OPTIONALLY a SEPARATE carry-rate ceiling) intake, HARD-gated on both rates being valid [0,1] fractions (`:mandate/record`) | Investment-guideline disclosure proposal beyond the fee/carry-rate caps (sector/stage/concentration limits -- this blueprint's own Offer lists it; not yet a governed op here) |
-| Management-fee DRAWDOWN off an upstream `vcfund` (`cloud-itonami-isic-6499`) fee-accrual report, independently re-verified (formula recompute + rate-cap check) and double-draw-protected (`:fee/drawdown`) | Rebalancing/trade execution (this blueprint's generic Offer lists it; not applicable to a VC fund, which does not rebalance public-market positions), real fund-accounting-system integration, tax/regulatory reporting |
+| Investment-mandate (LPA-authorized fee-rate ceiling, OPTIONALLY a SEPARATE carry-rate ceiling, OPTIONALLY sector/stage concentration caps) intake, HARD-gated on every rate/cap being a valid [0,1] fraction (`:mandate/record`) | Rebalancing/trade execution (this blueprint's generic Offer lists it; not applicable to a VC fund, which does not rebalance public-market positions), real fund-accounting-system integration, tax/regulatory reporting |
+| Management-fee DRAWDOWN off an upstream `vcfund` (`cloud-itonami-isic-6499`) fee-accrual report, independently re-verified (formula recompute + rate-cap check) and double-draw-protected (`:fee/drawdown`) | |
 | GP carry (profit-share) DISTRIBUTION off an upstream `vcfund` exit-distribution waterfall's `:gp-carry`/`:lp-residual-profit`, independently re-verified (formula recompute + a SEPARATE carry-rate-cap check) and double-distribution-protected by commitment number (`:carry/distribute`) | |
-| Immutable audit ledger for every mandate/drawdown/carry-distribution decision | |
+| Investment-guideline (sector/stage concentration) COMPLIANCE DISCLOSURE off an upstream `vcfund` portfolio-concentration report (`:guideline/disclose`) -- a genuine two-sided cross-check, not a one-sided carry-through: this company checks the upstream-reported fraction against caps only IT holds, since `vcfund` has no concept of an LPA-authorized limit | |
+| Immutable audit ledger for every mandate/drawdown/carry-distribution/guideline-disclosure decision | |
 
 Extending coverage is additive: add the next gate as its own governed
 op with its own HARD checks and tests, following the SAME cross-repo
-"read an upstream fact, never trust it, independently re-verify" pattern
-this repo's one flagship op already establishes.
+"read an upstream fact, never trust it, independently re-verify (or,
+where the check is genuinely two-sided, compare against a fact only
+THIS company holds)" pattern this repo's three flagship ops already
+establish.
 
 ## Capability layer
 

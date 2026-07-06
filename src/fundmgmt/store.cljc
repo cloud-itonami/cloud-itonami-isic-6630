@@ -21,14 +21,16 @@
             [langchain.db :as d]))
 
 (defprotocol Store
-  (mandate [s] "the CURRENT recorded investment mandate ({:annual-fee-rate-cap :carry-rate-cap :effective-date}, :carry-rate-cap possibly nil), or nil")
+  (mandate [s] "the CURRENT recorded investment mandate ({:annual-fee-rate-cap :carry-rate-cap :sector-caps :stage-caps :effective-date}, :carry-rate-cap/:sector-caps/:stage-caps possibly nil), or nil")
   (ledger [s])
   (mandate-history [s] "the append-only mandate-record history (fundmgmt.registry drafts)")
   (drawdown-history [s] "the append-only fee-drawdown history (fundmgmt.registry drafts)")
   (carry-distribution-history [s] "the append-only carry-distribution history (fundmgmt.registry drafts)")
+  (guideline-disclosure-history [s] "the append-only guideline-disclosure history (fundmgmt.registry drafts)")
   (mandate-sequence [s] "next mandate-number sequence")
   (drawdown-sequence [s] "next drawdown-number sequence")
   (carry-distribution-sequence [s] "next carry-distribution-number sequence")
+  (guideline-disclosure-sequence [s] "next guideline-disclosure-number sequence")
   (period-already-drawn? [s period] "has a fee already been drawn for this period?")
   (commitment-already-distributed? [s commitment-number] "has carry already been distributed for this commitment?")
   (commit-record! [s record] "apply a committed op's record to the SSoT")
@@ -39,12 +41,15 @@
 (defn- record-mandate!
   "Backend-agnostic `:mandate/record` -- drafts the mandate record and
   returns {:result ..} for the caller to persist (append-only history;
-  the CURRENT mandate advances to this one). `carry-rate-cap` is
-  OPTIONAL (nil when this fund does not yet authorize carry distribution
-  through this company)."
-  [s {:keys [annual-fee-rate-cap carry-rate-cap effective-date]}]
+  the CURRENT mandate advances to this one). `carry-rate-cap`/
+  `sector-caps`/`stage-caps` are all OPTIONAL (nil/empty when this fund
+  does not yet authorize carry distribution or has not recorded
+  guideline caps through this company)."
+  [s {:keys [annual-fee-rate-cap carry-rate-cap sector-caps stage-caps effective-date]}]
   (let [seq-n (mandate-sequence s)
-        result (registry/register-mandate annual-fee-rate-cap carry-rate-cap effective-date seq-n)]
+        result (registry/register-mandate annual-fee-rate-cap carry-rate-cap
+                                          {:sector-caps sector-caps :stage-caps stage-caps}
+                                          effective-date seq-n)]
     {:result result}))
 
 (defn- draw-fee!
@@ -75,6 +80,19 @@
         result (registry/register-carry-distribution commitment-number after-preferred-profit carry-rate gp-carry seq-n)]
     {:result result}))
 
+(defn- disclose-guideline!
+  "Backend-agnostic `:guideline/disclose` -- drafts the guideline-
+  disclosure record carrying the upstream `vcfund.concentration`
+  breakdown through verbatim (this company recomputes nothing here --
+  `fundmgmt.governor` independently compares the upstream fractions
+  against THIS company's own mandate caps before this is ever allowed to
+  commit), and returns {:result ..} for the caller to persist."
+  [s {:keys [total-invested-at-cost by-sector by-investment-stage as-of-date]}]
+  (let [seq-n (guideline-disclosure-sequence s)
+        result (registry/register-guideline-disclosure
+                total-invested-at-cost by-sector by-investment-stage as-of-date seq-n)]
+    {:result result}))
+
 ;; ----------------------------- MemStore (default) -----------------------------
 
 (defrecord MemStore [a]
@@ -84,9 +102,11 @@
   (mandate-history [_] (:mandate-history @a))
   (drawdown-history [_] (:drawdown-history @a))
   (carry-distribution-history [_] (:carry-distribution-history @a))
+  (guideline-disclosure-history [_] (:guideline-disclosure-history @a))
   (mandate-sequence [_] (count (:mandate-history @a)))
   (drawdown-sequence [_] (count (:drawdown-history @a)))
   (carry-distribution-sequence [_] (count (:carry-distribution-history @a)))
+  (guideline-disclosure-sequence [_] (count (:guideline-disclosure-history @a)))
   (period-already-drawn? [_ period] (boolean (some #(= period (get % "period")) (:drawdown-history @a))))
   (commitment-already-distributed? [_ commitment-number]
     (boolean (some #(= commitment-number (get % "commitment_number")) (:carry-distribution-history @a))))
@@ -99,7 +119,11 @@
                        (assoc :mandate (cond-> {:annual-fee-rate-cap (double (:annual-fee-rate-cap payload))
                                                 :effective-date (:effective-date payload)}
                                         (:carry-rate-cap payload)
-                                        (assoc :carry-rate-cap (double (:carry-rate-cap payload)))))
+                                        (assoc :carry-rate-cap (double (:carry-rate-cap payload)))
+                                        (seq (:sector-caps payload))
+                                        (assoc :sector-caps (:sector-caps payload))
+                                        (seq (:stage-caps payload))
+                                        (assoc :stage-caps (:stage-caps payload))))
                        (update :mandate-history registry/append result))))
         result)
 
@@ -112,6 +136,11 @@
       (let [{:keys [result]} (distribute-carry! s payload)]
         (swap! a update :carry-distribution-history registry/append result)
         result)
+
+      :guideline/disclosed
+      (let [{:keys [result]} (disclose-guideline! s payload)]
+        (swap! a update :guideline-disclosure-history registry/append result)
+        result)
       nil)
     s)
   (append-ledger! [_ fact] (swap! a update :ledger conj fact) fact))
@@ -120,7 +149,7 @@
   "An empty MemStore -- no mandate recorded yet, the deterministic default."
   []
   (->MemStore (atom {:mandate nil :ledger [] :mandate-history [] :drawdown-history []
-                     :carry-distribution-history []})))
+                     :carry-distribution-history [] :guideline-disclosure-history []})))
 
 ;; ----------------------------- DatomicStore (langchain.db) -----------------------------
 
@@ -132,7 +161,8 @@
    :ledger/seq        {:db/unique :db.unique/identity}
    :mandate-history/seq {:db/unique :db.unique/identity}
    :drawdown-history/seq {:db/unique :db.unique/identity}
-   :carry-distribution-history/seq {:db/unique :db.unique/identity}})
+   :carry-distribution-history/seq {:db/unique :db.unique/identity}
+   :guideline-disclosure-history/seq {:db/unique :db.unique/identity}})
 
 (defn- enc [v] (pr-str v))
 (defn- dec* [s] (when s (edn/read-string s)))
@@ -157,9 +187,14 @@
     (->> (d/q '[:find ?s ?r :where [?e :carry-distribution-history/seq ?s] [?e :carry-distribution-history/record ?r]] (d/db conn))
          (sort-by first)
          (mapv (comp dec* second))))
+  (guideline-disclosure-history [_]
+    (->> (d/q '[:find ?s ?r :where [?e :guideline-disclosure-history/seq ?s] [?e :guideline-disclosure-history/record ?r]] (d/db conn))
+         (sort-by first)
+         (mapv (comp dec* second))))
   (mandate-sequence [s] (count (mandate-history s)))
   (drawdown-sequence [s] (count (drawdown-history s)))
   (carry-distribution-sequence [s] (count (carry-distribution-history s)))
+  (guideline-disclosure-sequence [s] (count (guideline-disclosure-history s)))
   (period-already-drawn? [s period] (boolean (some #(= period (get % "period")) (drawdown-history s))))
   (commitment-already-distributed? [s commitment-number]
     (boolean (some #(= commitment-number (get % "commitment_number")) (carry-distribution-history s))))
@@ -172,7 +207,11 @@
                        :mandate/payload (enc (cond-> {:annual-fee-rate-cap (double (:annual-fee-rate-cap payload))
                                                       :effective-date (:effective-date payload)}
                                               (:carry-rate-cap payload)
-                                              (assoc :carry-rate-cap (double (:carry-rate-cap payload)))))}
+                                              (assoc :carry-rate-cap (double (:carry-rate-cap payload)))
+                                              (seq (:sector-caps payload))
+                                              (assoc :sector-caps (:sector-caps payload))
+                                              (seq (:stage-caps payload))
+                                              (assoc :stage-caps (:stage-caps payload))))}
                       {:mandate-history/seq (count (mandate-history s))
                        :mandate-history/record (enc (get result "record"))}])
         result)
@@ -187,6 +226,12 @@
       (let [{:keys [result]} (distribute-carry! s payload)]
         (d/transact! conn [{:carry-distribution-history/seq (count (carry-distribution-history s))
                            :carry-distribution-history/record (enc (get result "record"))}])
+        result)
+
+      :guideline/disclosed
+      (let [{:keys [result]} (disclose-guideline! s payload)]
+        (d/transact! conn [{:guideline-disclosure-history/seq (count (guideline-disclosure-history s))
+                           :guideline-disclosure-history/record (enc (get result "record"))}])
         result)
       nil)
     s)

@@ -3,25 +3,30 @@
   recording (no capital risk; auto-commits) -> management-fee DRAWDOWN
   off an UPSTREAM `cloud-itonami-isic-6499` (`vcfund`) fee-accrual
   report -> GP carry DISTRIBUTION off an upstream exit-distribution fact
-  (both always escalate -- real cash movements) -> human approval ->
-  commit, then shows eight HARD holds (a fee drawdown attempted with no
-  mandate on file, a drawdown whose upstream-claimed rate exceeds the
-  recorded mandate's cap, a drawdown whose upstream-claimed accrued
-  amount does not match this company's own independent recomputation, a
-  double-draw of the same period, a carry distribution attempted with
-  no carry-rate-cap mandate on file, a distribution whose upstream-
-  claimed carry rate exceeds the recorded cap, a distribution whose
-  upstream-claimed gp_carry does not match this company's own
-  independent recomputation, and a double-distribution of the same
-  commitment) that never reach a human at all, and prints the audit
-  ledger + the draft mandate/drawdown/carry-distribution records.
+  -> guideline-COMPLIANCE DISCLOSURE off an upstream portfolio-
+  concentration fact (all three always escalate -- real cash movements
+  or compliance statements) -> human approval -> commit, then shows ten
+  HARD holds (a fee drawdown attempted with no mandate on file, a
+  drawdown whose upstream-claimed rate exceeds the recorded mandate's
+  cap, a drawdown whose upstream-claimed accrued amount does not match
+  this company's own independent recomputation, a double-draw of the
+  same period, a carry distribution attempted with no carry-rate-cap
+  mandate on file, a distribution whose upstream-claimed carry rate
+  exceeds the recorded cap, a distribution whose upstream-claimed
+  gp_carry does not match this company's own independent recomputation,
+  a double-distribution of the same commitment, a guideline disclosure
+  attempted with no sector/stage-cap mandate on file, and a disclosure
+  whose upstream-reported concentration exceeds a recorded cap) that
+  never reach a human at all, and prints the audit ledger + the draft
+  mandate/drawdown/carry-distribution/guideline-disclosure records.
 
-  The `upstream-fee-report`/`upstream-distribution-report` fixtures
-  below are literal EDN, hand-shaped to match what an operator would
-  read off `vcfund.nav/fund-nav-report`/`vcfund.registry/distribute-
-  waterfall` (in the separate `cloud-itonami-isic-6499` repo) -- this
-  repo has NO code dependency on that one; see `fundmgmt.governor`'s
-  docstring for the documented data contract."
+  The `upstream-fee-report`/`upstream-distribution-report`/`upstream-
+  concentration-report` fixtures below are literal EDN, hand-shaped to
+  match what an operator would read off `vcfund.nav/fund-nav-report`/
+  `vcfund.registry/distribute-waterfall`/`vcfund.concentration/
+  concentration-report` (in the separate `cloud-itonami-isic-6499` repo)
+  -- this repo has NO code dependency on that one; see `fundmgmt.
+  governor`'s docstring for the documented data contract."
   (:require [langgraph.graph :as g]
             [fundmgmt.store :as store]
             [fundmgmt.operation :as op]))
@@ -37,9 +42,10 @@
 (defn -main [& _]
   (let [db (store/seed-db)
         actor (op/build db)]
-    (println "== mandate/record (annual-fee-rate-cap 2%, carry-rate-cap 20%; no capital risk; auto-commits) ==")
+    (println "== mandate/record (annual-fee-rate-cap 2%, carry-rate-cap 20%, sector-caps {ai 80%, fintech 30%}, stage-caps {seed 90%}; no capital risk; auto-commits) ==")
     (println (exec! actor "t1" {:op :mandate/record :subject "fund"
                                 :annual-fee-rate-cap 0.02 :carry-rate-cap 0.20
+                                :sector-caps {"ai" 0.80 "fintech" 0.30} :stage-caps {"seed" 0.90}
                                 :effective-date "2026-01-01"} operator))
 
     (println "== fee/drawdown 2026-Q3 (upstream vcfund report: 6,000,000 basis @ 2% for 1y = 120,000; always escalates -- actuation/draw-fee) ==")
@@ -102,6 +108,33 @@
                                 :upstream-distribution-report {:after-preferred-profit 9520000 :carry-rate 0.20
                                                                :gp-carry 1904000}} operator))
 
+    (let [clean-report {:total-invested-at-cost 2800000.0
+                        :by-sector {"ai" {:amount 2000000.0 :fraction 0.7142857142857143}
+                                   "robotics" {:amount 500000.0 :fraction 0.17857142857142858}
+                                   "fintech" {:amount 300000.0 :fraction 0.10714285714285714}}
+                        :by-investment-stage {"seed" {:amount 2300000.0 :fraction 0.8214285714285714}
+                                              "series-a" {:amount 500000.0 :fraction 0.17857142857142858}}}]
+      (println "== guideline/disclose (upstream vcfund concentration report: ai=71.4% <80% cap, fintech=10.7% <30% cap, seed=82.1% <90% cap -- all within this company's own recorded mandate caps; always escalates -- actuation/disclose-guidelines) ==")
+      (let [r (exec! actor "t12" {:op :guideline/disclose :subject "fund"
+                                  :upstream-concentration-report clean-report
+                                  :as-of-date "2026-07-06"} operator)]
+        (println r)
+        (println "-- human GP principal approves --")
+        (println (approve! actor "t12")))
+
+      (println "== guideline/disclose with NO sector/stage-cap mandate on file (fresh store -> HARD hold, never reaches a human) ==")
+      (let [db4 (store/seed-db)
+            actor4 (op/build db4)]
+        (println (exec! actor4 "t13" {:op :guideline/disclose :subject "fund"
+                                      :upstream-concentration-report clean-report
+                                      :as-of-date "2026-07-06"} operator)))
+
+      (println "== guideline/disclose whose upstream-reported ai concentration (95%) exceeds the recorded 80% sector cap -> HARD hold ==")
+      (let [exceeded-report (assoc-in clean-report [:by-sector "ai" :fraction] 0.95)]
+        (println (exec! actor "t14" {:op :guideline/disclose :subject "fund"
+                                     :upstream-concentration-report exceeded-report
+                                     :as-of-date "2026-07-06"} operator))))
+
     (println "== audit ledger ==")
     (doseq [f (store/ledger db)] (println f))
 
@@ -112,4 +145,7 @@
     (doseq [r (store/drawdown-history db)] (println r))
 
     (println "== draft carry-distribution records ==")
-    (doseq [r (store/carry-distribution-history db)] (println r))))
+    (doseq [r (store/carry-distribution-history db)] (println r))
+
+    (println "== draft guideline-disclosure records ==")
+    (doseq [r (store/guideline-disclosure-history db)] (println r))))

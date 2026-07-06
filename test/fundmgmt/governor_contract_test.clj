@@ -36,6 +36,17 @@
                       :annual-fee-rate-cap 0.02 :carry-rate-cap 0.20
                       :effective-date "2026-01-01"} operator))
 
+(defn- record-mandate-with-guideline-caps! [actor tid]
+  (exec-op actor tid {:op :mandate/record :subject "fund"
+                      :annual-fee-rate-cap 0.02 :carry-rate-cap 0.20
+                      :sector-caps {"ai" 0.80} :stage-caps {"seed" 0.90}
+                      :effective-date "2026-01-01"} operator))
+
+(def clean-concentration-report
+  {:total-invested-at-cost 2800000.0
+   :by-sector {"ai" {:amount 2000000.0 :fraction 0.7142857142857143}}
+   :by-investment-stage {"seed" {:amount 2300000.0 :fraction 0.8214285714285714}}})
+
 (deftest clean-mandate-record-auto-commits
   (let [[db actor] (fresh)
         res (record-mandate! actor "t1")]
@@ -205,6 +216,53 @@
       (is (= :hold (get-in res [:state :disposition])))
       (is (some #{:double-distribution} (-> (store/ledger db) last :basis)))
       (is (= 1 (count (store/carry-distribution-history db))) "still only the one earlier distribution"))))
+
+(deftest guideline-disclose-with-no-caps-mandate-is-held
+  (testing "a mandate exists but has no sector-caps/stage-caps -> HARD hold, nothing to disclose compliance against"
+    (let [[db actor] (fresh)
+          _ (record-mandate-with-carry! actor "t30a")
+          res (exec-op actor "t30" {:op :guideline/disclose :subject "fund"
+                                    :upstream-concentration-report clean-concentration-report
+                                    :as-of-date "2026-07-06"} operator)]
+      (is (= :hold (get-in res [:state :disposition])))
+      (is (some #{:guideline-mandate-missing} (-> (store/ledger db) last :basis)))
+      (is (empty? (store/guideline-disclosure-history db))))))
+
+(deftest guideline-disclose-exceeding-mandate-cap-is-held
+  (testing "upstream-reported ai concentration (95%) exceeds the recorded 80% sector cap -> HARD hold"
+    (let [[db actor] (fresh)
+          _ (record-mandate-with-guideline-caps! actor "t31a")
+          exceeded-report (assoc-in clean-concentration-report [:by-sector "ai" :fraction] 0.95)
+          res (exec-op actor "t31" {:op :guideline/disclose :subject "fund"
+                                    :upstream-concentration-report exceeded-report
+                                    :as-of-date "2026-07-06"} operator)]
+      (is (= :hold (get-in res [:state :disposition])))
+      (is (some #{:concentration-limit-exceeded} (-> (store/ledger db) last :basis)))
+      (is (empty? (store/guideline-disclosure-history db))))))
+
+(deftest guideline-disclose-always-escalates-then-human-decides
+  (testing "a clean, within-cap disclosure still ALWAYS interrupts for human approval -- actuation/disclose-guidelines is never auto"
+    (let [[db actor] (fresh)
+          _ (record-mandate-with-guideline-caps! actor "t32a")
+          r1 (exec-op actor "t32" {:op :guideline/disclose :subject "fund"
+                                   :upstream-concentration-report clean-concentration-report
+                                   :as-of-date "2026-07-06"} operator)]
+      (is (= :interrupted (:status r1)) "pauses for human approval even when governor-clean")
+      (testing "approve -> commit, guideline-disclosure record drafted"
+        (let [r2 (approve! actor "t32")]
+          (is (= :commit (get-in r2 [:state :disposition])))
+          (is (= 1 (count (store/guideline-disclosure-history db)))
+              "one draft guideline-disclosure record")))))
+  (testing "reject -> hold, nothing disclosed"
+    (let [[db actor] (fresh)
+          _ (record-mandate-with-guideline-caps! actor "t33a")
+          _ (exec-op actor "t33" {:op :guideline/disclose :subject "fund"
+                                  :upstream-concentration-report clean-concentration-report
+                                  :as-of-date "2026-07-06"} operator)
+          r2 (g/run* actor {:approval {:status :rejected :by "op-1"}}
+                     {:thread-id "t33" :resume? true})]
+      (is (= :hold (get-in r2 [:state :disposition])))
+      (is (empty? (store/guideline-disclosure-history db)) "nothing disclosed on reject"))))
 
 (deftest every-decision-leaves-one-ledger-fact
   (testing "write-only-through-ledger: N operations -> N ledger facts"

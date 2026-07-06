@@ -1,15 +1,17 @@
 (ns fundmgmt.advisor
   "FundManager-LLM client -- the *contained intelligence node* for the
-  fund-management-company actor. It normalizes investment-mandate intake
-  and drafts a management-fee DRAWDOWN off an UPSTREAM
-  `cloud-itonami-isic-6499` (`vcfund.nav/fund-nav-report`) fee-accrual
-  report, AND a GP carry-DISTRIBUTION off an upstream (`vcfund.registry/
-  register-distribution`) exit-distribution fact. CRITICAL: it is a
-  smart-but-untrusted advisor -- it returns a *proposal*, never a
-  committed record or a real cash movement. Every output is censored
-  downstream by `fundmgmt.governor` before anything touches the SSoT,
-  and `:fee/drawdown`/`:carry/distribute` NEVER auto-commit at any phase
-  -- see README `Actuation`.
+  fund-management-company actor. It normalizes investment-mandate intake,
+  drafts a management-fee DRAWDOWN off an UPSTREAM `cloud-itonami-isic-
+  6499` (`vcfund.nav/fund-nav-report`) fee-accrual report, a GP carry-
+  DISTRIBUTION off an upstream (`vcfund.registry/register-distribution`)
+  exit-distribution fact, AND a guideline-COMPLIANCE DISCLOSURE off an
+  upstream (`vcfund.concentration/concentration-report`) portfolio-
+  composition fact. CRITICAL: it is a smart-but-untrusted advisor -- it
+  returns a *proposal*, never a committed record or a real cash
+  movement. Every output is censored downstream by `fundmgmt.governor`
+  before anything touches the SSoT, and `:fee/drawdown`/`:carry/
+  distribute`/`:guideline/disclose` NEVER auto-commit at any phase -- see
+  README `Actuation`.
 
   Like `vcfund.ddllm`/`trustfund.advisor`, this is a deterministic mock
   so the actor graph runs offline and the governor contract is exercised
@@ -21,20 +23,24 @@
      :rationale  str            ; why -- SCANNED by validation gates
      :cites      [kw|str ..]    ; facts/sources the LLM used -- SCANNED too
      :effect     kw             ; how a commit would mutate the SSoT
-     :stake      kw|nil         ; :actuation/draw-fee | :actuation/distribute-carry | nil
+     :stake      kw|nil         ; :actuation/draw-fee | :actuation/distribute-carry | :actuation/disclose-guidelines | nil
      :confidence 0..1}")
 
 (defn- normalize-mandate
   "Investment-mandate intake -- the LLM only normalizes/validates the
   patch; it does not invent the LPA-authorized fee-rate ceiling (or the
-  OPTIONAL carry-rate ceiling). High confidence, low stakes."
-  [{:keys [annual-fee-rate-cap carry-rate-cap effective-date]}]
+  OPTIONAL carry-rate ceiling/sector-caps/stage-caps). High confidence,
+  low stakes."
+  [{:keys [annual-fee-rate-cap carry-rate-cap sector-caps stage-caps effective-date]}]
   {:summary    (str "投資マンデート登録 (annual-fee-rate-cap=" annual-fee-rate-cap
-                    (when carry-rate-cap (str ", carry-rate-cap=" carry-rate-cap)) ")")
+                    (when carry-rate-cap (str ", carry-rate-cap=" carry-rate-cap))
+                    (when (seq sector-caps) (str ", sector-caps=" sector-caps))
+                    (when (seq stage-caps) (str ", stage-caps=" stage-caps)) ")")
    :rationale  "入力されたマンデート事実の正規化のみ。新規事実の生成なし。"
    :cites      [:annual-fee-rate-cap :effective-date]
    :effect     :mandate/recorded
    :value      {:annual-fee-rate-cap annual-fee-rate-cap :carry-rate-cap carry-rate-cap
+               :sector-caps sector-caps :stage-caps stage-caps
                :effective-date effective-date}
    :stake      nil
    :confidence 0.95})
@@ -84,14 +90,39 @@
      :stake      :actuation/distribute-carry
      :confidence (if (and after-preferred-profit carry-rate) 0.9 0.2)}))
 
+(defn- propose-guideline-disclosure
+  "Draft the guideline-COMPLIANCE DISCLOSURE action -- the GP entity's
+  own act of disclosing that the fund's actual portfolio composition, as
+  reported by an UPSTREAM `vcfund.concentration/concentration-report`-
+  shaped fact (`:upstream-concentration-report`, the exact
+  `{:total-invested-at-cost .. :by-sector .. :by-investment-stage ..}`
+  map -- a REAL fact this advisor reads, never invents), complies with
+  THIS company's own recorded sector/stage concentration caps. ALWAYS
+  `:stake :actuation/disclose-guidelines` -- a REAL-WORLD compliance
+  statement, never a draft the actor may auto-run. See README
+  `Actuation`."
+  [{:keys [upstream-concentration-report as-of-date]}]
+  (let [{:keys [total-invested-at-cost by-sector by-investment-stage]} upstream-concentration-report]
+    {:summary    (str "guideline compliance disclosure提案 (as_of=" as-of-date
+                      ", total=" total-invested-at-cost ")")
+     :rationale  (str "upstream vcfund concentration report: as_of=" as-of-date)
+     :cites      [as-of-date]
+     :effect     :guideline/disclosed
+     :value      {:total-invested-at-cost total-invested-at-cost
+                 :by-sector by-sector :by-investment-stage by-investment-stage
+                 :as-of-date as-of-date}
+     :stake      :actuation/disclose-guidelines
+     :confidence (if (and total-invested-at-cost by-sector by-investment-stage) 0.9 0.2)}))
+
 (defn infer
   "Route a request to the right proposal generator.
   request: {:op kw :subject id ...op-specific...}"
   [{:keys [op] :as request}]
   (case op
-    :mandate/record   (normalize-mandate request)
-    :fee/drawdown     (propose-fee-drawdown request)
-    :carry/distribute (propose-carry-distribution request)
+    :mandate/record     (normalize-mandate request)
+    :fee/drawdown       (propose-fee-drawdown request)
+    :carry/distribute   (propose-carry-distribution request)
+    :guideline/disclose (propose-guideline-disclosure request)
     {:summary "未対応の操作" :rationale (str op) :cites []
      :effect :noop :stake nil :confidence 0.0}))
 

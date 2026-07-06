@@ -37,6 +37,63 @@
   (is (thrown? Exception (r/register-mandate 0.02 -0.01 "2026-01-01" 0)))
   (is (thrown? Exception (r/register-mandate 0.02 1.5 "2026-01-01" 0))))
 
+(deftest mandate-accepts-optional-sector-and-stage-caps
+  (let [result (r/register-mandate 0.02 0.20 {:sector-caps {"ai" 0.80} :stage-caps {"seed" 0.90}}
+                                   "2026-01-01" 0)]
+    (is (close? 0.80 (get-in result ["record" "sector_caps" "ai"])))
+    (is (close? 0.90 (get-in result ["record" "stage_caps" "seed"])))))
+
+(deftest mandate-4-arity-omits-guideline-caps-entirely
+  (testing "backward compatible: the 4-arity form never adds sector_caps/stage_caps keys at all"
+    (let [result (r/register-mandate 0.02 0.20 "2026-01-01" 0)]
+      (is (not (contains? (get result "record") "sector_caps")))
+      (is (not (contains? (get result "record") "stage_caps"))))))
+
+(deftest mandate-guideline-caps-validation-rules
+  (is (thrown? Exception (r/register-mandate 0.02 0.20 {:sector-caps {"ai" -0.01}} "2026-01-01" 0)))
+  (is (thrown? Exception (r/register-mandate 0.02 0.20 {:sector-caps {"ai" 1.5}} "2026-01-01" 0)))
+  (is (thrown? Exception (r/register-mandate 0.02 0.20 {:stage-caps {"seed" -0.01}} "2026-01-01" 0)))
+  (is (thrown? Exception (r/register-mandate 0.02 0.20 {:stage-caps {"seed" 1.5}} "2026-01-01" 0))))
+
+;; ----------------------------- guideline-disclosure -----------------------------
+
+(def concentration-fixture
+  {:total-invested-at-cost 2800000.0
+   :by-sector {"ai" {:amount 2000000.0 :fraction 0.7142857142857143}}
+   :by-investment-stage {"seed" {:amount 2300000.0 :fraction 0.8214285714285714}}})
+
+(deftest guideline-disclosure-is-a-draft-not-a-real-filing
+  (let [result (r/register-guideline-disclosure 2800000.0 (:by-sector concentration-fixture)
+                                                (:by-investment-stage concentration-fixture)
+                                                "2026-07-06" 0)]
+    (is (nil? (get-in result ["certificate" "proof"])))
+    (is (= (get-in result ["certificate" "issued_by_registry"]) false))
+    (is (= (get-in result ["certificate" "status"]) "draft-unsigned"))))
+
+(deftest guideline-disclosure-assigns-disclosure-number-and-carries-breakdowns-through
+  (let [result (r/register-guideline-disclosure 2800000.0 (:by-sector concentration-fixture)
+                                                (:by-investment-stage concentration-fixture)
+                                                "2026-07-06" 7)]
+    (is (= (get result "disclosure_number") "GUIDELINE-000007"))
+    (is (close? 2800000.0 (get-in result ["record" "total_invested_at_cost"])))
+    (is (= (get-in result ["record" "kind"]) "guideline-disclosure-draft"))
+    (is (= (get-in result ["record" "immutable"]) true))
+    (is (close? 0.7142857142857143 (get-in result ["record" "by_sector" "ai" :fraction])))))
+
+(deftest guideline-disclosure-validation-rules
+  (is (thrown? Exception (r/register-guideline-disclosure -1 {} {} "2026-07-06" 0)))
+  (is (thrown? Exception (r/register-guideline-disclosure 2800000.0 {} {} "" 0)))
+  (is (thrown? Exception (r/register-guideline-disclosure 2800000.0 {} {} "2026-07-06" -1))))
+
+(deftest guideline-disclosure-history-is-append-only
+  (let [g1 (r/register-guideline-disclosure 2800000.0 {} {} "2026-07-06" 0)
+        hist (r/append [] g1)
+        g2 (r/register-guideline-disclosure 3000000.0 {} {} "2026-10-06" 1)
+        hist2 (r/append hist g2)]
+    (is (= 2 (count hist2)))
+    (is (= "GUIDELINE-000000" (get-in hist2 [0 "record_id"])))
+    (is (= "GUIDELINE-000001" (get-in hist2 [1 "record_id"])))))
+
 ;; ----------------------------- fee-accrued -----------------------------
 
 (deftest fee-accrued-is-a-flat-annual-rate-on-the-basis

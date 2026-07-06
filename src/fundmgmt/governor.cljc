@@ -39,7 +39,21 @@
   management fee without (yet) authorizing carry distribution through
   this company at all.
 
-  Nine checks, in priority order. The first eight are HARD violations: a
+  `:guideline/disclose` is a THIRD, narrower pattern still: `cloud-
+  itonami-isic-6499`'s `vcfund.concentration/concentration-report`
+  reports what fraction of deployed capital sits in each portfolio
+  sector/investment-stage -- a fact this company has no data of its own
+  to independently recompute (it holds no deal directory at all, the
+  same honest bound `trustfund.governor`'s NAV-disclosure check
+  documents for its own sibling repo). What this governor CAN do is
+  compare that upstream-reported fraction against THIS company's OWN
+  mandate-defined sector/stage concentration caps -- a fact `vcfund`
+  does not hold either (an LPA-authorized limit is this company's own
+  fiduciary record). Neither side alone holds both halves of this check,
+  so it is a genuine two-sided cross-check, not a one-sided carry-
+  through.
+
+  Eleven checks, in priority order. The first ten are HARD violations: a
   human approver CANNOT override them.
 
     1. Invalid rate cap -- for `:mandate/record`, is the proposed
@@ -75,9 +89,16 @@
        match what `fundmgmt.registry/carry-accrued` INDEPENDENTLY
        recomputes from the fact's own after-preferred-profit/carry-rate
        (within float tolerance)?
-    9. Confidence floor / actuation gate -- LLM confidence below
-       threshold, OR the op is `:fee/drawdown`/`:carry/distribute` (REAL
-       cash movements -- see README `Actuation`) -> escalate.
+    9. Guideline mandate missing -- for `:guideline/disclose`, has a
+       mandate with AT LEAST one of `:sector-caps`/`:stage-caps` on file?
+       Nothing to disclose compliance against otherwise.
+    10. Concentration limit exceeded -- for `:guideline/disclose`, does
+        the upstream concentration report's reported fraction, for any
+        sector/stage THIS company's own mandate caps, exceed that cap?
+    11. Confidence floor / actuation gate -- LLM confidence below
+        threshold, OR the op is `:fee/drawdown`/`:carry/distribute`/
+        `:guideline/disclose` (REAL cash movements or compliance
+        statements -- see README `Actuation`) -> escalate.
 
   Two more guards, double-draw and double-distribution prevention, are
   enforced but NOT listed as numbered HARD checks above because they
@@ -85,18 +106,19 @@
   refuses to draw the SAME `:period` twice, and `double-distribution-
   violations` refuses to distribute carry for the SAME `:commitment-
   number` twice, each off this company's OWN history."
-  (:require [fundmgmt.registry :as registry]
+  (:require [clojure.string :as str]
+            [fundmgmt.registry :as registry]
             [fundmgmt.store :as store]))
 
 (def confidence-floor 0.6)
 
 (def high-stakes
   "Stakes grave enough to always require a human, even when clean.
-  Drawing a management fee and distributing GP carry are the two
-  real-world actuation events this actor performs -- real cash moving
-  between the fund and the GP entity, in either of the two economic
-  forms a management company collects (fee, and carried interest)."
-  #{:actuation/draw-fee :actuation/distribute-carry})
+  Drawing a management fee and distributing GP carry are real cash
+  movements between the fund and the GP entity; disclosing guideline
+  compliance is a third -- a compliance statement LPs will rely on, even
+  though it moves no capital itself."
+  #{:actuation/draw-fee :actuation/distribute-carry :actuation/disclose-guidelines})
 
 (def ^:private accrual-tolerance 1e-6)
 
@@ -214,6 +236,41 @@
       [{:rule :double-distribution
         :detail (str commitment-number " は既にcarry distribution済み")}])))
 
+(defn- guideline-mandate-missing-violations
+  "For `:guideline/disclose`, a mandate with AT LEAST one of `:sector-
+  caps`/`:stage-caps` recorded must actually be on file -- there is
+  nothing for this company to disclose compliance against otherwise."
+  [{:keys [op]} st]
+  (when (= op :guideline/disclose)
+    (let [m (store/mandate st)]
+      (when-not (or (seq (:sector-caps m)) (seq (:stage-caps m)))
+        [{:rule :guideline-mandate-missing
+          :detail "sector-caps/stage-capsを含む投資マンデートが未登録の状態でのguideline disclosure提案"}]))))
+
+(defn- concentration-limit-exceeded-violations
+  "For `:guideline/disclose`, for every sector/investment-stage THIS
+  company's OWN mandate defines a cap for, does the upstream `vcfund.
+  concentration/concentration-report` fact's reported `:fraction` for
+  that name exceed the cap? A direct comparison, not a recompute --
+  there is no formula to independently re-derive a portfolio-composition
+  fraction from (see ns docstring). A name the mandate does NOT cap is
+  never flagged -- no cap means no limit enforced for it."
+  [{:keys [op upstream-concentration-report]} st]
+  (when (= op :guideline/disclose)
+    (let [{:keys [sector-caps stage-caps]} (store/mandate st)
+          {:keys [by-sector by-investment-stage]} upstream-concentration-report
+          exceeded (fn [caps reported]
+                     (keep (fn [[name cap]]
+                            (when-let [{:keys [fraction]} (get reported name)]
+                              (when (> fraction cap) name)))
+                          caps))
+          sector-hits (exceeded sector-caps by-sector)
+          stage-hits (exceeded stage-caps by-investment-stage)]
+      (when (or (seq sector-hits) (seq stage-hits))
+        [{:rule :concentration-limit-exceeded
+          :detail (str "sector上限超過: " (str/join ", " sector-hits)
+                      "; stage上限超過: " (str/join ", " stage-hits))}]))))
+
 (defn check
   "Censors a FundManager-LLM proposal against the governor rules. Returns
    {:ok? bool :violations [..] :confidence c :escalate? bool :high-stakes? bool
@@ -229,7 +286,9 @@
                            (accrual-mismatch-violations request)
                            (carry-mismatch-violations request)
                            (double-draw-violations request st)
-                           (double-distribution-violations request st)))
+                           (double-distribution-violations request st)
+                           (guideline-mandate-missing-violations request st)
+                           (concentration-limit-exceeded-violations request st)))
         conf (:confidence proposal 0.0)
         low? (< conf confidence-floor)
         stakes? (boolean (high-stakes (:stake proposal)))
