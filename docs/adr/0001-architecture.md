@@ -165,3 +165,71 @@ exceptions: one clean mandate+drawdown lifecycle (escalate → approve →
 commit) plus four HARD-hold cases (no mandate on file, rate exceeding the
 mandate cap, mismatched accrual, double-draw of the same period) that
 never reach a human.
+
+## Addendum 1 (2026-07-06, same day, autonomous /loop iteration): `:carry/distribute` -- GP carry distribution closes the second flagship integration point
+
+The recurring `/loop` prompt asked for coverage/maturity improvement, so
+this autonomously picked "Carry (GP profit-share) distribution off an
+upstream `vcfund` exit-distribution waterfall's `:total-to-gp` figure"
+off this repo's own README coverage table -- explicitly documented as
+"the SAME integration pattern, not yet implemented" since the R0 build
+(the original Decision section above).
+
+- **`fundmgmt.registry/carry-accrued`** (new, pure) -- INDEPENDENTLY
+  reimplements `vcfund.registry/distribute-waterfall`'s `:gp-carry` split
+  (`after-preferred-profit * carry-rate`). `after-preferred-profit` is
+  NOT itself exposed by that fn's return -- an operator/integration
+  reconstructs it as `:gp-carry` + `:lp-residual-profit` from the
+  upstream waterfall record, the documented data-contract translation
+  (same posture as `cloud-itonami-isic-6499`'s own `fund-nav-report`
+  exposing `:fee-basis` for this repo's fee-drawdown integration).
+- **`fundmgmt.registry/register-carry-distribution`** (new) -- drafts
+  the `CARRY-000000`-style distribution record, referencing the upstream
+  `commitment_number` for traceability, mirroring `register-fee-
+  drawdown`'s shape.
+- **`fundmgmt.registry/register-mandate` grew a 4th positional arg**,
+  `carry-rate-cap` -- OPTIONAL (the 3-arity form still works unchanged,
+  fully backward compatible, verified by a dedicated test asserting the
+  3-arity record never even contains a `carry_rate_cap` key). A fund's
+  LPA can authorize a management fee without (yet) authorizing carry
+  distribution through this company at all -- a SEPARATE cap from
+  `annual-fee-rate-cap`, not a reuse of it.
+- **New op `:carry/distribute`** -- ingests `:upstream-distribution-
+  report` (`{:after-preferred-profit .. :carry-rate .. :gp-carry ..}`,
+  the exact shape an operator derives from an upstream `vcfund.registry/
+  register-distribution` fact). FOUR new HARD checks mirror the
+  fee-drawdown pattern exactly: `carry-mandate-missing-violations` (a
+  mandate WITH a `:carry-rate-cap` must be on file -- a fee-only mandate
+  does not authorize this op), `carry-rate-exceeds-mandate-violations`
+  (the claimed rate can't exceed this company's OWN recorded ceiling),
+  `carry-mismatch-violations` (independently recompute via `carry-
+  accrued` and compare against the claimed `:gp-carry`), and `double-
+  distribution-violations` (refuses the SAME `commitment-number` twice,
+  off this company's own history -- no upstream comparison needed).
+  `:actuation/distribute-carry` joins `high-stakes` as a second member
+  (a management company moves real cash in two economic forms -- fee and
+  carry -- so, like `vcfund.governor`'s multi-member set, this is not
+  collapsed to one). `:carry/distribute` is NEVER auto-eligible at any
+  phase, the same permanent structural invariant `:fee/drawdown` already
+  established.
+- Demo (`clojure -M:dev:run`) ties the clean carry-distribution scenario
+  directly to `cloud-itonami-isic-6499`'s own demo numbers
+  (after-preferred-profit=9,520,000, carry-rate=20%, gp-carry=1,904,000
+  -- the exact figures from that repo's `waterfall-splits-carry-only-on-
+  residual-profit` deal-by-deal example), making the cross-repo
+  narrative concrete rather than abstract.
+
+Consequences: `test/fundmgmt/*` grew from 25 tests/98 assertions to 41
+tests/166 assertions (new `register-mandate` 4-arity/carry-rate-cap
+tests, `carry-accrued`/`register-carry-distribution` tests in
+`registry_test.clj`; carry-distribution parity in `store_contract_
+test.clj`; five new HARD-hold + one escalate-then-approve/reject test in
+`governor_contract_test.clj`; `:carry/distribute` never-auto structural
+test in `phase_test.clj`), still lint-clean; demo now walks BOTH
+flagship integration flows (fee drawdown, carry distribution) through
+clean escalate-then-approve paths plus eight total HARD-hold cases (four
+per op) that never reach a human. Remaining honest gaps unchanged from
+the original Decision section: investment-guideline disclosure beyond
+the fee/carry-rate caps, rebalancing/trade (not applicable to a VC
+fund), real fund-accounting-system integration, tax/regulatory
+reporting.

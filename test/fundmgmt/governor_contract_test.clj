@@ -31,6 +31,11 @@
   (exec-op actor tid {:op :mandate/record :subject "fund"
                       :annual-fee-rate-cap 0.02 :effective-date "2026-01-01"} operator))
 
+(defn- record-mandate-with-carry! [actor tid]
+  (exec-op actor tid {:op :mandate/record :subject "fund"
+                      :annual-fee-rate-cap 0.02 :carry-rate-cap 0.20
+                      :effective-date "2026-01-01"} operator))
+
 (deftest clean-mandate-record-auto-commits
   (let [[db actor] (fresh)
         res (record-mandate! actor "t1")]
@@ -118,6 +123,88 @@
       (is (= :hold (get-in res [:state :disposition])))
       (is (some #{:double-draw} (-> (store/ledger db) last :basis)))
       (is (= 1 (count (store/drawdown-history db))) "still only the one earlier draw"))))
+
+(deftest invalid-carry-rate-cap-is-held-and-unoverridable
+  (testing "an out-of-range carry rate cap -> HOLD, settles immediately, never reaches a human"
+    (let [[db actor] (fresh)
+          res (exec-op actor "t20" {:op :mandate/record :subject "fund"
+                                    :annual-fee-rate-cap 0.02 :carry-rate-cap 1.5
+                                    :effective-date "2026-01-01"} operator)]
+      (is (= :hold (get-in res [:state :disposition])))
+      (is (some #{:invalid-carry-rate-cap} (-> (store/ledger db) first :basis)))
+      (is (nil? (store/mandate db)) "no mandate written"))))
+
+(deftest carry-distribute-with-fee-only-mandate-is-held
+  (testing "a mandate exists but has no carry-rate-cap -> HARD hold, a fee-only mandate does not authorize carry"
+    (let [[db actor] (fresh)
+          _ (record-mandate! actor "t21a")
+          res (exec-op actor "t21" {:op :carry/distribute :subject "fund" :commitment-number "USA-00000000"
+                                    :upstream-distribution-report {:after-preferred-profit 9520000 :carry-rate 0.20
+                                                                   :gp-carry 1904000}} operator)]
+      (is (= :hold (get-in res [:state :disposition])))
+      (is (some #{:carry-mandate-missing} (-> (store/ledger db) last :basis)))
+      (is (empty? (store/carry-distribution-history db))))))
+
+(deftest carry-distribute-exceeding-mandate-rate-is-held
+  (testing "upstream-claimed carry rate (30%) exceeds the recorded 20% mandate cap -> HARD hold"
+    (let [[db actor] (fresh)
+          _ (record-mandate-with-carry! actor "t22a")
+          res (exec-op actor "t22" {:op :carry/distribute :subject "fund" :commitment-number "USA-00000000"
+                                    :upstream-distribution-report {:after-preferred-profit 9520000 :carry-rate 0.30
+                                                                   :gp-carry 2856000}} operator)]
+      (is (= :hold (get-in res [:state :disposition])))
+      (is (some #{:carry-rate-exceeds-mandate} (-> (store/ledger db) last :basis)))
+      (is (empty? (store/carry-distribution-history db))))))
+
+(deftest carry-distribute-with-mismatched-gp-carry-is-held
+  (testing "upstream-claimed gp_carry does not match independent recomputation -> HARD hold"
+    (let [[db actor] (fresh)
+          _ (record-mandate-with-carry! actor "t23a")
+          res (exec-op actor "t23" {:op :carry/distribute :subject "fund" :commitment-number "USA-00000000"
+                                    :upstream-distribution-report {:after-preferred-profit 9520000 :carry-rate 0.20
+                                                                   :gp-carry 999999}} operator)]
+      (is (= :hold (get-in res [:state :disposition])))
+      (is (some #{:carry-mismatch} (-> (store/ledger db) last :basis)))
+      (is (empty? (store/carry-distribution-history db))))))
+
+(deftest carry-distribute-always-escalates-then-human-decides
+  (testing "a clean, matching carry distribution still ALWAYS interrupts for human approval -- actuation/distribute-carry is never auto"
+    (let [[db actor] (fresh)
+          _ (record-mandate-with-carry! actor "t24a")
+          r1 (exec-op actor "t24" {:op :carry/distribute :subject "fund" :commitment-number "USA-00000000"
+                                   :upstream-distribution-report {:after-preferred-profit 9520000 :carry-rate 0.20
+                                                                  :gp-carry 1904000}} operator)]
+      (is (= :interrupted (:status r1)) "pauses for human approval even when governor-clean")
+      (testing "approve -> commit, carry-distribution record drafted"
+        (let [r2 (approve! actor "t24")]
+          (is (= :commit (get-in r2 [:state :disposition])))
+          (is (= 1 (count (store/carry-distribution-history db)))
+              "one draft carry-distribution record")))))
+  (testing "reject -> hold, nothing distributed"
+    (let [[db actor] (fresh)
+          _ (record-mandate-with-carry! actor "t25a")
+          _ (exec-op actor "t25" {:op :carry/distribute :subject "fund" :commitment-number "USA-00000000"
+                                  :upstream-distribution-report {:after-preferred-profit 9520000 :carry-rate 0.20
+                                                                 :gp-carry 1904000}} operator)
+          r2 (g/run* actor {:approval {:status :rejected :by "op-1"}}
+                     {:thread-id "t25" :resume? true})]
+      (is (= :hold (get-in r2 [:state :disposition])))
+      (is (empty? (store/carry-distribution-history db)) "nothing distributed on reject"))))
+
+(deftest carry-distribute-double-distribution-of-the-same-commitment-is-held
+  (testing "a commitment already distributed -> HARD hold, even though the figures match cleanly"
+    (let [[db actor] (fresh)
+          _ (record-mandate-with-carry! actor "t26a")
+          _ (exec-op actor "t26b" {:op :carry/distribute :subject "fund" :commitment-number "USA-00000000"
+                                   :upstream-distribution-report {:after-preferred-profit 9520000 :carry-rate 0.20
+                                                                  :gp-carry 1904000}} operator)
+          _ (approve! actor "t26b")
+          res (exec-op actor "t26" {:op :carry/distribute :subject "fund" :commitment-number "USA-00000000"
+                                    :upstream-distribution-report {:after-preferred-profit 9520000 :carry-rate 0.20
+                                                                   :gp-carry 1904000}} operator)]
+      (is (= :hold (get-in res [:state :disposition])))
+      (is (some #{:double-distribution} (-> (store/ledger db) last :basis)))
+      (is (= 1 (count (store/carry-distribution-history db))) "still only the one earlier distribution"))))
 
 (deftest every-decision-leaves-one-ledger-fact
   (testing "write-only-through-ledger: N operations -> N ledger facts"

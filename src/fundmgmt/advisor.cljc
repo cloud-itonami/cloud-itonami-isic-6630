@@ -3,10 +3,12 @@
   fund-management-company actor. It normalizes investment-mandate intake
   and drafts a management-fee DRAWDOWN off an UPSTREAM
   `cloud-itonami-isic-6499` (`vcfund.nav/fund-nav-report`) fee-accrual
-  report. CRITICAL: it is a smart-but-untrusted advisor -- it returns a
-  *proposal*, never a committed record or a real cash movement. Every
-  output is censored downstream by `fundmgmt.governor` before anything
-  touches the SSoT, and `:fee/drawdown` NEVER auto-commits at any phase
+  report, AND a GP carry-DISTRIBUTION off an upstream (`vcfund.registry/
+  register-distribution`) exit-distribution fact. CRITICAL: it is a
+  smart-but-untrusted advisor -- it returns a *proposal*, never a
+  committed record or a real cash movement. Every output is censored
+  downstream by `fundmgmt.governor` before anything touches the SSoT,
+  and `:fee/drawdown`/`:carry/distribute` NEVER auto-commit at any phase
   -- see README `Actuation`.
 
   Like `vcfund.ddllm`/`trustfund.advisor`, this is a deterministic mock
@@ -19,19 +21,21 @@
      :rationale  str            ; why -- SCANNED by validation gates
      :cites      [kw|str ..]    ; facts/sources the LLM used -- SCANNED too
      :effect     kw             ; how a commit would mutate the SSoT
-     :stake      kw|nil         ; :actuation/draw-fee | nil
+     :stake      kw|nil         ; :actuation/draw-fee | :actuation/distribute-carry | nil
      :confidence 0..1}")
 
 (defn- normalize-mandate
   "Investment-mandate intake -- the LLM only normalizes/validates the
-  patch; it does not invent the LPA-authorized fee-rate ceiling. High
-  confidence, low stakes."
-  [{:keys [annual-fee-rate-cap effective-date]}]
-  {:summary    (str "投資マンデート登録 (annual-fee-rate-cap=" annual-fee-rate-cap ")")
+  patch; it does not invent the LPA-authorized fee-rate ceiling (or the
+  OPTIONAL carry-rate ceiling). High confidence, low stakes."
+  [{:keys [annual-fee-rate-cap carry-rate-cap effective-date]}]
+  {:summary    (str "投資マンデート登録 (annual-fee-rate-cap=" annual-fee-rate-cap
+                    (when carry-rate-cap (str ", carry-rate-cap=" carry-rate-cap)) ")")
    :rationale  "入力されたマンデート事実の正規化のみ。新規事実の生成なし。"
    :cites      [:annual-fee-rate-cap :effective-date]
    :effect     :mandate/recorded
-   :value      {:annual-fee-rate-cap annual-fee-rate-cap :effective-date effective-date}
+   :value      {:annual-fee-rate-cap annual-fee-rate-cap :carry-rate-cap carry-rate-cap
+               :effective-date effective-date}
    :stake      nil
    :confidence 0.95})
 
@@ -56,13 +60,38 @@
      :stake      :actuation/draw-fee
      :confidence (if (and fee-basis annual-fee-rate years-elapsed) 0.9 0.2)}))
 
+(defn- propose-carry-distribution
+  "Draft the GP carry-DISTRIBUTION action -- the GP entity's own act of
+  taking its carried-interest share of an UPSTREAM `vcfund.registry/
+  register-distribution`-shaped exit-distribution fact
+  (`:upstream-distribution-report`, the exact `{:after-preferred-profit
+  .. :carry-rate .. :gp-carry ..}` an operator would derive from that
+  fact's waterfall (`:gp-carry` + `:lp-residual-profit` = after-
+  preferred-profit; `:carry-rate` and `:gp-carry` themselves are read
+  straight off it) -- a REAL fact this advisor reads, never invents).
+  ALWAYS `:stake :actuation/distribute-carry` -- a REAL-WORLD cash
+  movement, never a draft the actor may auto-run. See README
+  `Actuation`."
+  [{:keys [commitment-number upstream-distribution-report]}]
+  (let [{:keys [after-preferred-profit carry-rate gp-carry]} upstream-distribution-report]
+    {:summary    (str commitment-number " 向けcarry distribution提案 (gp_carry=" gp-carry ")")
+     :rationale  (str "upstream vcfund exit-distribution fact: after-preferred-profit=" after-preferred-profit
+                      " carry-rate=" carry-rate)
+     :cites      [commitment-number]
+     :effect     :carry/distributed
+     :value      {:commitment-number commitment-number
+                 :after-preferred-profit after-preferred-profit :carry-rate carry-rate}
+     :stake      :actuation/distribute-carry
+     :confidence (if (and after-preferred-profit carry-rate) 0.9 0.2)}))
+
 (defn infer
   "Route a request to the right proposal generator.
   request: {:op kw :subject id ...op-specific...}"
   [{:keys [op] :as request}]
   (case op
-    :mandate/record (normalize-mandate request)
-    :fee/drawdown   (propose-fee-drawdown request)
+    :mandate/record   (normalize-mandate request)
+    :fee/drawdown     (propose-fee-drawdown request)
+    :carry/distribute (propose-carry-distribution request)
     {:summary "未対応の操作" :rationale (str op) :cites []
      :effect :noop :stake nil :confidence 0.0}))
 

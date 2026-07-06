@@ -49,41 +49,58 @@ has no LP directory of its own and cannot independently re-derive
 `fee-basis` -- only reapply the rate*basis*years formula to whatever
 basis the upstream report claims (see `fundmgmt.governor`'s docstring).
 
+The SAME pattern governs GP carry: `vcfund.registry/distribute-
+waterfall`'s `:gp-carry` (the GP's carried-interest share of profit
+after return-of-capital and the preferred return) becomes a real cash
+movement only when THIS company distributes it. `fundmgmt.governor`
+independently reapplies the SAME profit*rate split
+(`fundmgmt.registry/carry-accrued`, again a separate re-implementation)
+from the upstream fact's own after-preferred-profit/carry-rate, checks
+the claimed carry-rate against a SEPARATE `:carry-rate-cap` this company
+records (a fund's LPA can authorize a management fee without yet
+authorizing carry distribution through this company at all), and
+refuses to distribute the SAME commitment's carry twice.
+
 ## Core Contract
 
 ```text
-upstream vcfund fee-accrual report (a separate repo's calculation, read as a fact)
+upstream vcfund fee-accrual report / exit-distribution fact (a separate repo's calculation, read as a fact)
         |
         v
    ┌───────────────┐   proposal      ┌───────────────────────┐
    │ FundManager-LLM│ ─────────────▶ │ FundManagementGovernor  │  (independent system)
-   │  (sealed)     │  + citations    │ invalid-rate-cap ·      │
-   └───────────────┘                 │ mandate-missing ·       │
-                             commit ◀────┼──────────▶ hold │ rate-exceeds-mandate ·
-                                 │             │              │ accrual-mismatch ·
-                           record + ledger  escalate ─▶ human │ double-draw
+   │  (sealed)     │  + citations    │ invalid-(carry-)rate-cap│
+   └───────────────┘                 │ (carry-)mandate-missing │
+                             commit ◀────┼──────────▶ hold │ (carry-)rate-exceeds-mandate
+                                 │             │              │ accrual/carry-mismatch ·
+                           record + ledger  escalate ─▶ human │ double-draw/-distribution
                                              (ALWAYS for
-                                              :fee/drawdown)
+                                              :fee/drawdown /
+                                              :carry/distribute)
 ```
 
-No automated proposal, by itself, can draw a management fee without
-`FundManagementGovernor` approval and a human GP principal's sign-off.
+No automated proposal, by itself, can draw a management fee or
+distribute GP carry without `FundManagementGovernor` approval and a
+human GP principal's sign-off.
 
 ## Actuation
 
-**Drawing a management fee is never autonomous, at any phase, by
-construction.** It is the one real-world cash movement this company
-performs -- real money moving from the fund to the GP entity.
-`fundmgmt.governor/high-stakes` has one member, `:actuation/draw-fee`;
-`fundmgmt.phase` never puts it in any phase's `:auto` set. Two
-independent layers enforce this. `:mandate/record` moves no capital
-(still HARD-gated -- an out-of-range rate cap is un-overridable -- but
-not `high-stakes`), so it IS auto-eligible at phase 3.
+**Drawing a management fee or distributing GP carry is never
+autonomous, at any phase, by construction.** These are the two
+real-world cash movements this company performs -- real money moving
+between the fund and the GP entity, in the two economic forms a
+management company collects (fee, and carried interest).
+`fundmgmt.governor/high-stakes` has two members, `:actuation/draw-fee`
+and `:actuation/distribute-carry`; `fundmgmt.phase` never puts either in
+any phase's `:auto` set. Two independent layers enforce this.
+`:mandate/record` moves no capital (still HARD-gated -- an out-of-range
+rate cap is un-overridable -- but not `high-stakes`), so it IS
+auto-eligible at phase 3.
 
 ## Run
 
 ```bash
-clojure -M:dev:run     # walk one clean mandate+drawdown lifecycle + four HARD-hold cases through the actor
+clojure -M:dev:run     # walk one clean mandate+drawdown+carry lifecycle + eight HARD-hold cases through the actor
 clojure -M:dev:test    # governor contract · phase invariants · store parity · registry conformance
 clojure -M:lint        # clj-kondo (errors fail; CI mirrors this)
 ```
@@ -92,27 +109,29 @@ clojure -M:lint        # clj-kondo (errors fail; CI mirrors this)
 
 | File | Role |
 |---|---|
-| `src/fundmgmt/store.cljc` | **Store** protocol -- `MemStore` ‖ `DatomicStore` (`langchain.db`) + append-only audit ledger + mandate/fee-drawdown history + double-draw-by-period check |
-| `src/fundmgmt/registry.cljc` | Investment-mandate draft + fee-drawdown draft records, `fee-accrued` (an INDEPENDENT re-implementation of `vcfund.nav/management-fee-accrued`'s base-case math -- see "Relationship") |
-| `src/fundmgmt/advisor.cljc` | **FundManager-LLM** -- `mock-advisor`; mandate-intake/fee-drawdown proposals (the latter reads an upstream `vcfund` fee-accrual report as a fact) |
-| `src/fundmgmt/governor.cljc` | **FundManagementGovernor** -- 4 HARD checks (invalid-rate-cap · mandate-missing · rate-exceeds-mandate · accrual-mismatch, independently re-verified) + a double-draw guard + 1 soft (confidence/actuation gate) |
-| `src/fundmgmt/phase.cljc` | **Phase 0→3** -- read-only → assisted intake → supervised (fee drawdown always human; mandate intake auto-eligible, no capital risk) |
+| `src/fundmgmt/store.cljc` | **Store** protocol -- `MemStore` ‖ `DatomicStore` (`langchain.db`) + append-only audit ledger + mandate/fee-drawdown/carry-distribution history + double-draw-by-period AND double-distribution-by-commitment checks |
+| `src/fundmgmt/registry.cljc` | Investment-mandate draft (optional carry-rate-cap) + fee-drawdown draft + carry-distribution draft records, `fee-accrued`/`carry-accrued` (INDEPENDENT re-implementations of `vcfund.nav/management-fee-accrued`'s base-case math and `vcfund.registry/distribute-waterfall`'s `:gp-carry` split -- see "Relationship") |
+| `src/fundmgmt/advisor.cljc` | **FundManager-LLM** -- `mock-advisor`; mandate-intake/fee-drawdown/carry-distribution proposals (the latter two read an upstream `vcfund` fact as-is) |
+| `src/fundmgmt/governor.cljc` | **FundManagementGovernor** -- 8 HARD checks (invalid-(carry-)rate-cap · (carry-)mandate-missing · (carry-)rate-exceeds-mandate · accrual/carry-mismatch, independently re-verified) + double-draw/-distribution guards + 1 soft (confidence/actuation gate) |
+| `src/fundmgmt/phase.cljc` | **Phase 0→3** -- read-only → assisted intake → supervised (fee drawdown/carry distribution always human; mandate intake auto-eligible, no capital risk) |
 | `src/fundmgmt/operation.cljc` | **OperationActor** -- langgraph-clj StateGraph |
-| `src/fundmgmt/sim.cljc` | demo driver -- includes literal upstream fee-report fixtures matching `vcfund.nav/fund-nav-report`'s exact shape |
+| `src/fundmgmt/sim.cljc` | demo driver -- includes literal upstream fee-report/exit-distribution fixtures matching `vcfund.nav/fund-nav-report`'s/`vcfund.registry/distribute-waterfall`'s exact shapes |
 | `test/fundmgmt/*_test.clj` | governor contract · phase invariants · store parity · registry conformance |
 
 ## Business-process coverage (honest)
 
-This actor covers the ONE flagship cross-repo integration point
-(management-fee drawdown off an upstream investment-actor fee-accrual
-report) plus the mandate-intake foundation it depends on. It does **not**
-yet cover every offer this blueprint's `docs/business-model.md` lists:
+This actor covers TWO flagship cross-repo integration points
+(management-fee drawdown AND GP carry distribution, both off upstream
+investment-actor facts) plus the mandate-intake foundation they depend
+on. It does **not** yet cover every offer this blueprint's `docs/
+business-model.md` lists:
 
 | Covered | Not covered (out of scope for this R0) |
 |---|---|
-| Investment-mandate (LPA-authorized fee-rate ceiling) intake, HARD-gated on the rate being a valid [0,1] fraction (`:mandate/record`) | Investment-guideline disclosure proposal beyond the fee-rate cap (sector/stage/concentration limits -- this blueprint's own Offer lists it; not yet a governed op here) |
-| Management-fee DRAWDOWN off an upstream `vcfund` (`cloud-itonami-isic-6499`) fee-accrual report, independently re-verified (formula recompute + rate-cap check) and double-draw-protected (`:fee/drawdown`) | Carry (GP profit-share) distribution off an upstream `vcfund` exit-distribution waterfall's `:total-to-gp` figure (the SAME integration pattern, not yet implemented) |
-| Immutable audit ledger for every mandate/drawdown decision | Rebalancing/trade execution (this blueprint's generic Offer lists it; not applicable to a VC fund, which does not rebalance public-market positions), real fund-accounting-system integration, tax/regulatory reporting |
+| Investment-mandate (LPA-authorized fee-rate ceiling, OPTIONALLY a SEPARATE carry-rate ceiling) intake, HARD-gated on both rates being valid [0,1] fractions (`:mandate/record`) | Investment-guideline disclosure proposal beyond the fee/carry-rate caps (sector/stage/concentration limits -- this blueprint's own Offer lists it; not yet a governed op here) |
+| Management-fee DRAWDOWN off an upstream `vcfund` (`cloud-itonami-isic-6499`) fee-accrual report, independently re-verified (formula recompute + rate-cap check) and double-draw-protected (`:fee/drawdown`) | Rebalancing/trade execution (this blueprint's generic Offer lists it; not applicable to a VC fund, which does not rebalance public-market positions), real fund-accounting-system integration, tax/regulatory reporting |
+| GP carry (profit-share) DISTRIBUTION off an upstream `vcfund` exit-distribution waterfall's `:gp-carry`/`:lp-residual-profit`, independently re-verified (formula recompute + a SEPARATE carry-rate-cap check) and double-distribution-protected by commitment number (`:carry/distribute`) | |
+| Immutable audit ledger for every mandate/drawdown/carry-distribution decision | |
 
 Extending coverage is additive: add the next gate as its own governed
 op with its own HARD checks and tests, following the SAME cross-repo

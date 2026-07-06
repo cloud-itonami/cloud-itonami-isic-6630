@@ -15,13 +15,17 @@
 
 ## Offer
 
-- investment-mandate intake (LPA-authorized management-fee rate ceiling)
+- investment-mandate intake (LPA-authorized management-fee rate ceiling,
+  OPTIONALLY a separate carry-rate ceiling)
 - management-fee drawdown proposal off an upstream investment-actor
   (`cloud-itonami-isic-6499`) fee-accrual report, independently
   re-verified against this company's own recorded mandate and
   double-draw-protected per billing period
-- investment-guideline disclosure proposal beyond the fee-rate cap (blueprint-stage; not yet a governed op)
-- carry (GP profit-share) distribution proposal (blueprint-stage; not yet a governed op)
+- GP carry (profit-share) distribution proposal off an upstream
+  investment-actor exit-distribution waterfall, independently
+  re-verified against this company's own recorded carry-rate ceiling and
+  double-distribution-protected per commitment
+- investment-guideline disclosure proposal beyond the fee/carry-rate caps (blueprint-stage; not yet a governed op)
 - rebalancing/trade proposal (not applicable to a VC fund; retained here
   only because this ISIC class also covers mutual-fund/pension-asset
   management, where it is relevant)
@@ -37,10 +41,12 @@
 
 ## Trust Controls
 
-- no management fee is drawn without human (GP principal) sign-off
-- a fee draw with no mandate on file, a claimed rate exceeding the
-  recorded mandate cap, a claimed accrual not matching this company's own
-  independent recomputation, or a double-draw of an already-drawn period
-  forces a hold, not an override
-- every mandate/drawdown path is auditable
+- no management fee is drawn and no GP carry is distributed without
+  human (GP principal) sign-off
+- a fee draw or carry distribution with no (carry-)mandate on file, a
+  claimed rate exceeding the recorded mandate cap, a claimed accrual/
+  carry not matching this company's own independent recomputation, or a
+  double-draw/double-distribution of an already-processed period/
+  commitment forces a hold, not an override
+- every mandate/drawdown/carry-distribution path is auditable
 - emergency manual override paths remain outside LLM control
