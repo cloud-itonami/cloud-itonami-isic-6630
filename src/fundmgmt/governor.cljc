@@ -107,10 +107,16 @@
   violations` refuses to distribute carry for the SAME `:commitment-
   number` twice, each off this company's OWN history."
   (:require [clojure.string :as str]
+            [fundmgmt.kernels.gate :as gate]
             [fundmgmt.registry :as registry]
             [fundmgmt.store :as store]))
 
-(def confidence-floor 0.6)
+(def confidence-floor
+  "Documented threshold. The DECIDING copy is
+  `fundmgmt.kernels.gate/confidence-floor-x100` (integer x100 in the
+  safety kernel); this def is kept for callers/docs and pinned equal by
+  `fundmgmt.kernels.gate-test`."
+  0.6)
 
 (def high-stakes
   "Stakes grave enough to always require a human, even when clean.
@@ -124,6 +130,19 @@
 
 (defn- close? [a b] (< (Math/abs (- (double a) (double b))) accrual-tolerance))
 
+(defn- confidence->x100
+  "Host bridge (façade-side, not kernel vocabulary): scale a 0.0..1.0
+  advisor confidence to the kernel's integer x100 wire code."
+  [c]
+  (Math/round (* 100.0 (double c))))
+
+(defn- frac->x1e6
+  "Host bridge (façade-side, not kernel vocabulary): scale a 0.0..1.0
+  rate/fraction to the kernel's integer x1e6 (micro-unit) wire code —
+  finer than this namespace's own 1e-6 float tolerance."
+  [r]
+  (Math/round (* 1000000.0 (double r))))
+
 (defn- invalid-rate-cap-violations
   "For `:mandate/record`, the proposed `:annual-fee-rate-cap` must be a
   fraction in [0,1] -- checked here so an out-of-range value HOLDS
@@ -132,7 +151,10 @@
   [{:keys [op]} proposal]
   (when (= op :mandate/record)
     (let [rate (get-in proposal [:value :annual-fee-rate-cap])]
-      (when-not (and rate (<= 0 rate 1))
+      ;; the [0,1] range check itself lives in the kernel (micro-unit
+      ;; ints via the frac->x1e6 bridge); a MISSING cap is decided here
+      (when (or (nil? rate)
+                (= 1 (gate/frac-out-of-range (frac->x1e6 rate))))
         [{:rule :invalid-rate-cap
           :detail "annual-fee-rate-capは[0,1]の範囲でなければならない"}]))))
 
@@ -144,7 +166,9 @@
   [{:keys [op]} proposal]
   (when (= op :mandate/record)
     (let [rate (get-in proposal [:value :carry-rate-cap])]
-      (when (and rate (not (<= 0 rate 1)))
+      ;; range check in-kernel; a missing carry cap is a valid
+      ;; fee-only mandate and never reaches the kernel
+      (when (and rate (= 1 (gate/frac-out-of-range (frac->x1e6 rate))))
         [{:rule :invalid-carry-rate-cap
           :detail "carry-rate-capは[0,1]の範囲でなければならない"}]))))
 
@@ -173,8 +197,11 @@
   [{:keys [op upstream-fee-report]} st]
   (when (= op :fee/drawdown)
     (when-let [m (store/mandate st)]
-      (when (> (double (:annual-fee-rate upstream-fee-report))
-               (:annual-fee-rate-cap m))
+      ;; the ceiling comparison itself lives in the kernel
+      ;; (micro-unit ints via the frac->x1e6 bridge)
+      (when (= 1 (gate/rate-exceeds-cap
+                  (frac->x1e6 (:annual-fee-rate upstream-fee-report))
+                  (frac->x1e6 (:annual-fee-rate-cap m))))
         [{:rule :rate-exceeds-mandate
           :detail "upstream報告の料率がmandateの上限を超過"}]))))
 
@@ -184,7 +211,10 @@
   [{:keys [op upstream-distribution-report]} st]
   (when (= op :carry/distribute)
     (when-let [cap (:carry-rate-cap (store/mandate st))]
-      (when (> (double (:carry-rate upstream-distribution-report)) cap)
+      ;; same in-kernel ceiling comparison as the fee-rate check
+      (when (= 1 (gate/rate-exceeds-cap
+                  (frac->x1e6 (:carry-rate upstream-distribution-report))
+                  (frac->x1e6 cap)))
         [{:rule :carry-rate-exceeds-mandate
           :detail "upstream報告のcarry率がmandateの上限を超過"}]))))
 
@@ -262,7 +292,12 @@
           exceeded (fn [caps reported]
                      (keep (fn [[name cap]]
                             (when-let [{:keys [fraction]} (get reported name)]
-                              (when (> fraction cap) name)))
+                              ;; per-name ceiling comparison in-kernel
+                              ;; (micro-unit ints)
+                              (when (= 1 (gate/rate-exceeds-cap
+                                          (frac->x1e6 fraction)
+                                          (frac->x1e6 cap)))
+                                name)))
                           caps))
           sector-hits (exceeded sector-caps by-sector)
           stage-hits (exceeded stage-caps by-investment-stage)]
@@ -276,28 +311,51 @@
    {:ok? bool :violations [..] :confidence c :escalate? bool :high-stakes? bool
     :hard? bool}."
   [request _context proposal st]
-  (let [hard (into []
-                   (concat (invalid-rate-cap-violations request proposal)
-                           (invalid-carry-rate-cap-violations request proposal)
-                           (mandate-missing-violations request st)
-                           (carry-mandate-missing-violations request st)
-                           (rate-exceeds-mandate-violations request st)
-                           (carry-rate-exceeds-mandate-violations request st)
-                           (accrual-mismatch-violations request)
-                           (carry-mismatch-violations request)
-                           (double-draw-violations request st)
-                           (double-distribution-violations request st)
-                           (guideline-mandate-missing-violations request st)
-                           (concentration-limit-exceeded-violations request st)))
+  (let [cap-v (invalid-rate-cap-violations request proposal)
+        carry-cap-v (invalid-carry-rate-cap-violations request proposal)
+        mandate-v (mandate-missing-violations request st)
+        carry-mandate-v (carry-mandate-missing-violations request st)
+        rate-v (rate-exceeds-mandate-violations request st)
+        carry-rate-v (carry-rate-exceeds-mandate-violations request st)
+        accrual-v (accrual-mismatch-violations request)
+        carry-mismatch-v (carry-mismatch-violations request)
+        draw-v (double-draw-violations request st)
+        dist-v (double-distribution-violations request st)
+        guideline-v (guideline-mandate-missing-violations request st)
+        conc-v (concentration-limit-exceeded-violations request st)
+        hard (into [] (concat cap-v carry-cap-v mandate-v carry-mandate-v
+                              rate-v carry-rate-v accrual-v carry-mismatch-v
+                              draw-v dist-v guideline-v conc-v))
         conf (:confidence proposal 0.0)
-        low? (< conf confidence-floor)
         stakes? (boolean (high-stakes (:stake proposal)))
-        hard? (boolean (seq hard))]
-    {:ok?          (and (not hard?) (not low?) (not stakes?))
+        ;; The decision itself is delegated to the safety kernel
+        ;; (fundmgmt.kernels.gate, integer-coded fail-closed core);
+        ;; this façade only gathers evidence (violation lists with
+        ;; human-readable details — including the float-epsilon
+        ;; accrual/carry recomputations, which stay façade-side and
+        ;; reach the kernel as flags) and maps codes back to keywords.
+        ;; Kernel is stricter than the old inline logic on ONE case by
+        ;; design: an out-of-range confidence (< 0 or > 1.0) now
+        ;; escalates instead of counting as high confidence.
+        code (gate/verdict-code (if (seq cap-v) 1 0)
+                                (if (seq carry-cap-v) 1 0)
+                                (if (seq mandate-v) 1 0)
+                                (if (seq carry-mandate-v) 1 0)
+                                (if (seq rate-v) 1 0)
+                                (if (seq carry-rate-v) 1 0)
+                                (if (seq accrual-v) 1 0)
+                                (if (seq carry-mismatch-v) 1 0)
+                                (if (seq draw-v) 1 0)
+                                (if (seq dist-v) 1 0)
+                                (if (seq guideline-v) 1 0)
+                                (if (seq conc-v) 1 0)
+                                (confidence->x100 conf)
+                                (if stakes? 1 0))]
+    {:ok?          (= 0 code)
      :violations   hard
      :confidence   conf
-     :hard?        hard?
-     :escalate?    (and (not hard?) (or low? stakes?))
+     :hard?        (= 2 code)
+     :escalate?    (= 1 code)
      :high-stakes? stakes?}))
 
 (defn hold-fact

@@ -18,10 +18,10 @@
     (is (= (get-in result ["record" "immutable"]) true))))
 
 (deftest mandate-validation-rules
-  (is (thrown? Exception (r/register-mandate -0.01 "2026-01-01" 0)))
-  (is (thrown? Exception (r/register-mandate 1.5 "2026-01-01" 0)))
-  (is (thrown? Exception (r/register-mandate 0.02 "" 0)))
-  (is (thrown? Exception (r/register-mandate 0.02 "2026-01-01" -1))))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-mandate -0.01 "2026-01-01" 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-mandate 1.5 "2026-01-01" 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-mandate 0.02 "" 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-mandate 0.02 "2026-01-01" -1))))
 
 (deftest mandate-accepts-an-optional-carry-rate-cap
   (let [result (r/register-mandate 0.02 0.20 "2026-01-01" 0)]
@@ -34,8 +34,8 @@
       (is (not (contains? (get result "record") "carry_rate_cap"))))))
 
 (deftest mandate-carry-rate-cap-validation-rules
-  (is (thrown? Exception (r/register-mandate 0.02 -0.01 "2026-01-01" 0)))
-  (is (thrown? Exception (r/register-mandate 0.02 1.5 "2026-01-01" 0))))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-mandate 0.02 -0.01 "2026-01-01" 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-mandate 0.02 1.5 "2026-01-01" 0))))
 
 (deftest mandate-accepts-optional-sector-and-stage-caps
   (let [result (r/register-mandate 0.02 0.20 {:sector-caps {"ai" 0.80} :stage-caps {"seed" 0.90}}
@@ -50,10 +50,10 @@
       (is (not (contains? (get result "record") "stage_caps"))))))
 
 (deftest mandate-guideline-caps-validation-rules
-  (is (thrown? Exception (r/register-mandate 0.02 0.20 {:sector-caps {"ai" -0.01}} "2026-01-01" 0)))
-  (is (thrown? Exception (r/register-mandate 0.02 0.20 {:sector-caps {"ai" 1.5}} "2026-01-01" 0)))
-  (is (thrown? Exception (r/register-mandate 0.02 0.20 {:stage-caps {"seed" -0.01}} "2026-01-01" 0)))
-  (is (thrown? Exception (r/register-mandate 0.02 0.20 {:stage-caps {"seed" 1.5}} "2026-01-01" 0))))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-mandate 0.02 0.20 {:sector-caps {"ai" -0.01}} "2026-01-01" 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-mandate 0.02 0.20 {:sector-caps {"ai" 1.5}} "2026-01-01" 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-mandate 0.02 0.20 {:stage-caps {"seed" -0.01}} "2026-01-01" 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-mandate 0.02 0.20 {:stage-caps {"seed" 1.5}} "2026-01-01" 0))))
 
 ;; ----------------------------- guideline-disclosure -----------------------------
 
@@ -81,9 +81,9 @@
     (is (close? 0.7142857142857143 (get-in result ["record" "by_sector" "ai" :fraction])))))
 
 (deftest guideline-disclosure-validation-rules
-  (is (thrown? Exception (r/register-guideline-disclosure -1 {} {} "2026-07-06" 0)))
-  (is (thrown? Exception (r/register-guideline-disclosure 2800000.0 {} {} "" 0)))
-  (is (thrown? Exception (r/register-guideline-disclosure 2800000.0 {} {} "2026-07-06" -1))))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-guideline-disclosure -1 {} {} "2026-07-06" 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-guideline-disclosure 2800000.0 {} {} "" 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-guideline-disclosure 2800000.0 {} {} "2026-07-06" -1))))
 
 (deftest guideline-disclosure-history-is-append-only
   (let [g1 (r/register-guideline-disclosure 2800000.0 {} {} "2026-07-06" 0)
@@ -100,9 +100,9 @@
   (is (close? 120000.0 (r/fee-accrued 6000000 0.02 1))))
 
 (deftest fee-accrued-validation-rules
-  (is (thrown? Exception (r/fee-accrued -1 0.02 1)))
-  (is (thrown? Exception (r/fee-accrued 1 -0.02 1)))
-  (is (thrown? Exception (r/fee-accrued 1 0.02 -1))))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/fee-accrued -1 0.02 1)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/fee-accrued 1 -0.02 1)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/fee-accrued 1 0.02 -1))))
 
 ;; ----------------------------- fee-drawdown -----------------------------
 
@@ -121,12 +121,12 @@
     (is (= (get-in result ["record" "immutable"]) true))))
 
 (deftest fee-drawdown-validation-rules
-  (is (thrown? Exception (r/register-fee-drawdown "" 6000000 0.02 1 120000 0)))
-  (is (thrown? Exception (r/register-fee-drawdown "2026-Q3" -1 0.02 1 120000 0)))
-  (is (thrown? Exception (r/register-fee-drawdown "2026-Q3" 6000000 -0.02 1 120000 0)))
-  (is (thrown? Exception (r/register-fee-drawdown "2026-Q3" 6000000 0.02 -1 120000 0)))
-  (is (thrown? Exception (r/register-fee-drawdown "2026-Q3" 6000000 0.02 1 -1 0)))
-  (is (thrown? Exception (r/register-fee-drawdown "2026-Q3" 6000000 0.02 1 120000 -1))))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-fee-drawdown "" 6000000 0.02 1 120000 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-fee-drawdown "2026-Q3" -1 0.02 1 120000 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-fee-drawdown "2026-Q3" 6000000 -0.02 1 120000 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-fee-drawdown "2026-Q3" 6000000 0.02 -1 120000 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-fee-drawdown "2026-Q3" 6000000 0.02 1 -1 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-fee-drawdown "2026-Q3" 6000000 0.02 1 120000 -1))))
 
 (deftest drawdown-history-is-append-only
   (let [d1 (r/register-fee-drawdown "2026-Q3" 6000000 0.02 1 120000 0)
@@ -143,9 +143,9 @@
   (is (close? 1904000.0 (r/carry-accrued 9520000 0.20))))
 
 (deftest carry-accrued-validation-rules
-  (is (thrown? Exception (r/carry-accrued -1 0.20)))
-  (is (thrown? Exception (r/carry-accrued 1 -0.01)))
-  (is (thrown? Exception (r/carry-accrued 1 1.5))))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/carry-accrued -1 0.20)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/carry-accrued 1 -0.01)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/carry-accrued 1 1.5))))
 
 ;; ----------------------------- carry-distribution -----------------------------
 
@@ -164,11 +164,11 @@
     (is (= (get-in result ["record" "immutable"]) true))))
 
 (deftest carry-distribution-validation-rules
-  (is (thrown? Exception (r/register-carry-distribution "" 9520000 0.20 1904000 0)))
-  (is (thrown? Exception (r/register-carry-distribution "USA-00000000" -1 0.20 1904000 0)))
-  (is (thrown? Exception (r/register-carry-distribution "USA-00000000" 9520000 1.5 1904000 0)))
-  (is (thrown? Exception (r/register-carry-distribution "USA-00000000" 9520000 0.20 -1 0)))
-  (is (thrown? Exception (r/register-carry-distribution "USA-00000000" 9520000 0.20 1904000 -1))))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-carry-distribution "" 9520000 0.20 1904000 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-carry-distribution "USA-00000000" -1 0.20 1904000 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-carry-distribution "USA-00000000" 9520000 1.5 1904000 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-carry-distribution "USA-00000000" 9520000 0.20 -1 0)))
+  (is (thrown? #?(:clj Exception :cljs js/Error) (r/register-carry-distribution "USA-00000000" 9520000 0.20 1904000 -1))))
 
 (deftest carry-distribution-history-is-append-only
   (let [c1 (r/register-carry-distribution "USA-00000000" 9520000 0.20 1904000 0)
