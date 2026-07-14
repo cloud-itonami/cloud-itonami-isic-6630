@@ -130,6 +130,7 @@ clojure -M:lint        # clj-kondo (errors fail; CI mirrors this)
 | `src/fundmgmt/operation.cljc` | **OperationActor** -- langgraph-clj StateGraph |
 | `src/fundmgmt/sim.cljc` | demo driver -- includes literal upstream fee-report/exit-distribution/concentration-report fixtures matching `vcfund.nav/fund-nav-report`'s/`vcfund.registry/distribute-waterfall`'s/`vcfund.concentration/concentration-report`'s exact shapes |
 | `test/fundmgmt/*_test.clj` | governor contract · phase invariants · store parity · registry conformance |
+| `wasm/fee_accrual.kotoba` | PoC: a WASM-compiled (`kotoba-lang/kotoba` -> `kotoba-lang/kototama`'s `actor:host` ABI) fixed-point (rate-bps/years-x100) port of `fundmgmt.registry/fee-accrued`'s independent-recompute formula, i.e. `fundmgmt.governor`'s `:accrual-mismatch` HARD check -- see `wasm/README.md` for the offset layout and scaling rationale |
 
 ## Business-process coverage (honest)
 
