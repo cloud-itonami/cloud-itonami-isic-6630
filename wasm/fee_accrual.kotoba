@@ -1,0 +1,23 @@
+(ns cloud-itonami-fee-accrual)
+
+(defn fee-accrual-matches? [fee-basis rate-bps years-x100 claimed-accrued-amount]
+  (= (quot (* fee-basis rate-bps years-x100) 1000000) claimed-accrued-amount))
+
+;; ABI: `main` stays 0-arity (the compiler rejects a parameterized main --
+;; :main-arity, see kotoba-lang/kotoba's compile-wasm-expr) and reads its
+;; four real i32 inputs out of the exported linear memory instead, at
+;; fixed byte offsets a host writes into before calling main() (same
+;; convention as cloud-itonami-isic-6492's affordability.kotoba /
+;; cloud-itonami-isic-6511's underwriting_decision.kotoba):
+;;   offset 0:  fee-basis                (i32, smallest currency unit / cents)
+;;   offset 4:  rate-bps                 (i32, annual-fee-rate * 10000 --
+;;                                        basis points; e.g. 200 = 2.00%)
+;;   offset 8:  years-x100               (i32, years-elapsed * 100 --
+;;                                        hundredths of a year; e.g. 150 =
+;;                                        1.50 years)
+;;   offset 12: claimed-accrued-amount   (i32, cents -- the upstream fee
+;;                                        report's own :accrued-amount claim)
+;; Returns 1 (recomputed accrual matches the claim) or 0 (mismatch --
+;; fundmgmt.governor's :accrual-mismatch HARD violation).
+(defn main []
+  (fee-accrual-matches? (mem-i32-at 0 0) (mem-i32-at 0 4) (mem-i32-at 0 8) (mem-i32-at 0 12)))
