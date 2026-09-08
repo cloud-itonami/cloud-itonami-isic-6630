@@ -106,7 +106,7 @@
   refuses to draw the SAME `:period` twice, and `double-distribution-
   violations` refuses to distribute carry for the SAME `:commitment-
   number` twice, each off this company's OWN history."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [fundmgmt.kernels.gate :as gate]
             [fundmgmt.registry :as registry]
             [fundmgmt.store :as store]))
