@@ -41,7 +41,7 @@
 
 ;; ----------------------------- scenario fixtures -----------------------------
 ;; All values below are lifted verbatim from `fundmgmt.sim` (the repo's own
-;; demo driver) and `test/fundmgmt/governor_contract_test.cljc`. They are
+;; demo driver) and `test/fundmgmt/governor_contract_test.cljk`. They are
 ;; defs, not inline literals, so the gate table below probes the SAME
 ;; request maps the run actually executed.
 
