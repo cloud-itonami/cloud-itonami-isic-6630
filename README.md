@@ -122,13 +122,13 @@ clojure -M:lint        # clj-kondo (errors fail; CI mirrors this)
 
 | File | Role |
 |---|---|
-| `src/fundmgmt/store.cljc` | **Store** protocol -- `MemStore` ‖ `DatomicStore` (`langchain.db`) + append-only audit ledger + mandate/fee-drawdown/carry-distribution/guideline-disclosure history + double-draw-by-period AND double-distribution-by-commitment checks |
-| `src/fundmgmt/registry.cljc` | Investment-mandate draft (optional carry-rate-cap, sector-caps, stage-caps) + fee-drawdown draft + carry-distribution draft + guideline-disclosure draft records, `fee-accrued`/`carry-accrued` (INDEPENDENT re-implementations of `vcfund.nav/management-fee-accrued`'s base-case math and `vcfund.registry/distribute-waterfall`'s `:gp-carry` split -- see "Relationship") |
-| `src/fundmgmt/advisor.cljc` | **FundManager-LLM** -- `mock-advisor`; mandate-intake/fee-drawdown/carry-distribution/guideline-disclosure proposals (the latter three read an upstream `vcfund` fact as-is) |
-| `src/fundmgmt/governor.cljc` | **FundManagementGovernor** -- 10 HARD checks (invalid-(carry-)rate-cap · (carry-)mandate-missing · (carry-)rate-exceeds-mandate · accrual/carry-mismatch · guideline-mandate-missing · concentration-limit-exceeded) + double-draw/-distribution guards + 1 soft (confidence/actuation gate) |
-| `src/fundmgmt/phase.cljc` | **Phase 0→3** -- read-only → assisted intake → supervised (fee drawdown/carry distribution/guideline disclosure always human; mandate intake auto-eligible, no capital risk) |
-| `src/fundmgmt/operation.cljc` | **OperationActor** -- langgraph-clj StateGraph |
-| `src/fundmgmt/sim.cljc` | demo driver -- includes literal upstream fee-report/exit-distribution/concentration-report fixtures matching `vcfund.nav/fund-nav-report`'s/`vcfund.registry/distribute-waterfall`'s/`vcfund.concentration/concentration-report`'s exact shapes |
+| `src/fundmgmt/store.cljk` | **Store** protocol -- `MemStore` ‖ `DatomicStore` (`langchain.db`) + append-only audit ledger + mandate/fee-drawdown/carry-distribution/guideline-disclosure history + double-draw-by-period AND double-distribution-by-commitment checks |
+| `src/fundmgmt/registry.cljk` | Investment-mandate draft (optional carry-rate-cap, sector-caps, stage-caps) + fee-drawdown draft + carry-distribution draft + guideline-disclosure draft records, `fee-accrued`/`carry-accrued` (INDEPENDENT re-implementations of `vcfund.nav/management-fee-accrued`'s base-case math and `vcfund.registry/distribute-waterfall`'s `:gp-carry` split -- see "Relationship") |
+| `src/fundmgmt/advisor.cljk` | **FundManager-LLM** -- `mock-advisor`; mandate-intake/fee-drawdown/carry-distribution/guideline-disclosure proposals (the latter three read an upstream `vcfund` fact as-is) |
+| `src/fundmgmt/governor.cljk` | **FundManagementGovernor** -- 10 HARD checks (invalid-(carry-)rate-cap · (carry-)mandate-missing · (carry-)rate-exceeds-mandate · accrual/carry-mismatch · guideline-mandate-missing · concentration-limit-exceeded) + double-draw/-distribution guards + 1 soft (confidence/actuation gate) |
+| `src/fundmgmt/phase.cljk` | **Phase 0→3** -- read-only → assisted intake → supervised (fee drawdown/carry distribution/guideline disclosure always human; mandate intake auto-eligible, no capital risk) |
+| `src/fundmgmt/operation.cljk` | **OperationActor** -- langgraph-clj StateGraph |
+| `src/fundmgmt/sim.cljk` | demo driver -- includes literal upstream fee-report/exit-distribution/concentration-report fixtures matching `vcfund.nav/fund-nav-report`'s/`vcfund.registry/distribute-waterfall`'s/`vcfund.concentration/concentration-report`'s exact shapes |
 | `test/fundmgmt/*_test.clj` | governor contract · phase invariants · store parity · registry conformance |
 | `wasm/fee_accrual.kotoba` | PoC: a WASM-compiled (`kotoba-lang/kotoba` -> `kotoba-lang/kototama`'s `actor:host` ABI) fixed-point (rate-bps/years-x100) port of `fundmgmt.registry/fee-accrued`'s independent-recompute formula, i.e. `fundmgmt.governor`'s `:accrual-mismatch` HARD check -- see `wasm/README.md` for the offset layout and scaling rationale |
 

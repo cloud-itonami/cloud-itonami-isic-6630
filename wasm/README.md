@@ -4,10 +4,10 @@
 non-compounded annual-rate management-fee accrual formula (the
 independent recompute `fundmgmt.governor`'s `:accrual-mismatch` HARD check
 runs against an upstream `vcfund` fee report's claimed `:accrued-amount`
--- see `src/fundmgmt/governor.cljc`'s ns docstring, check 7) into the
+-- see `src/fundmgmt/governor.cljk`'s ns docstring, check 7) into the
 minimal `.kotoba` language subset, compiled to a real WASM module via
 `kotoba wasm emit`, and hosted via `kototama.tender`
-(`test/wasm/fee_accrual_test.clj`).
+(`test/wasm/fee_accrual_test.cljk`).
 
 This follows the same `kotoba wasm emit` → `kototama.tender` pipeline
 `cloud-itonami-isic-6492`'s `wasm/affordability.kotoba` and
