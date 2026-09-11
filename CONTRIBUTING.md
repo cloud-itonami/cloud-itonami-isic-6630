@@ -10,8 +10,8 @@ contracts.
 
 ```bash
 # in kotoba-lang/securities:
-clojure -M:test
-clojure -M:lint
+kbb -M:test
+kbb -M:lint
 ```
 
 Keep changes small and include tests for any capability-layer change.
