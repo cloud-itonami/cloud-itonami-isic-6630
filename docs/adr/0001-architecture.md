@@ -140,7 +140,7 @@ silently claimed as done.
 ## Consequences
 
 - (+) The cross-repo integration is PROVEN, not merely asserted: the
-  demo (`clojure -M:dev:run`) and test suite
+  demo (`kbb -M:dev:run`) and test suite
   (`governor_contract_test.clj`) exercise a CLEAN upstream report
   (escalates then commits), a report exceeding the mandate rate, a
   report with a mismatched accrual, a fee draw with no mandate at all,
@@ -160,7 +160,7 @@ silently claimed as done.
 ## Test/lint status
 
 `test/fundmgmt/*` -- 25 tests / 98 assertions, lint-clean
-(`clojure -M:lint`), demo (`clojure -M:dev:run`) runs end-to-end with no
+(`kbb -M:lint`), demo (`kbb -M:dev:run`) runs end-to-end with no
 exceptions: one clean mandate+drawdown lifecycle (escalate → approve →
 commit) plus four HARD-hold cases (no mandate on file, rate exceeding the
 mandate cap, mismatched accrual, double-draw of the same period) that
@@ -212,7 +212,7 @@ off this repo's own README coverage table -- explicitly documented as
   collapsed to one). `:carry/distribute` is NEVER auto-eligible at any
   phase, the same permanent structural invariant `:fee/drawdown` already
   established.
-- Demo (`clojure -M:dev:run`) ties the clean carry-distribution scenario
+- Demo (`kbb -M:dev:run`) ties the clean carry-distribution scenario
   directly to `cloud-itonami-isic-6499`'s own demo numbers
   (after-preferred-profit=9,520,000, carry-rate=20%, gp-carry=1,904,000
   -- the exact figures from that repo's `waterfall-splits-carry-only-on-
@@ -285,7 +285,7 @@ it required a coordinated change across TWO repos rather than one.
   reported-value vs. recorded-limit. Documented explicitly in `fundmgmt.
   governor`'s docstring rather than describing it as "the same pattern"
   when it structurally is not.
-- Demo (`clojure -M:dev:run`) ties the clean disclosure scenario to a
+- Demo (`kbb -M:dev:run`) ties the clean disclosure scenario to a
   concrete three-sector portfolio (ai/robotics/fintech, seed/series-a
   stages) with caps chosen so the clean case passes and a SEPARATE
   scenario (one sector's fraction pushed to 95%) HARD-holds against an

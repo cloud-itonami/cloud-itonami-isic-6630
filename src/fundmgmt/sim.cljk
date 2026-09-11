@@ -1,5 +1,5 @@
 (ns fundmgmt.sim
-  "Demo driver -- `clojure -M:dev:run`. Walks a clean investment-mandate
+  "Demo driver -- `kbb -M:dev:run`. Walks a clean investment-mandate
   recording (no capital risk; auto-commits) -> management-fee DRAWDOWN
   off an UPSTREAM `cloud-itonami-isic-6499` (`vcfund`) fee-accrual
   report -> GP carry DISTRIBUTION off an upstream exit-distribution fact
