@@ -1,0 +1,45 @@
+;; What this vertical's robot physically does, declared for
+;; kotoba.robotics.process (kotoba-lang/robotics). `kbb -M:dev:physics` runs it.
+;;
+;; README "Robotics premise": a document-custody robot manages physical
+;; mandate / prospectus custody (ISIC 6630, fund management). Its physical
+;; work: carrying boxes of printed prospectuses from the loading dock to the
+;; custody room, retrieving mandate files from compact shelving at every shelf
+;; height, and keeping the files below paper-char temperature in a fire-rated
+;; filing cabinet.
+;;
+;; Every number without a cited source is marked `estimate` in its :basis.
+;; Replacing an estimate with a sourced value is this bot's growth work.
+{:physics/schema "itonami.physical-ai.spec.v1"
+ :repo "cloud-itonami/cloud-itonami-isic-6630"
+ :cases
+ [{:id :prospectus-boxes-dock-to-custody
+   :kind :transport
+   :procedure "custody robot carries cartons of printed prospectuses from the loading dock to the custody room"
+   :params {:mass-kg 60.0 :distance-m 70.0 :v-max-mps 1.0 :a-max-mps2 0.5
+            :brake-decel-mps2 0.8 :drive-force-n 140.0 :crr 0.02
+            :cog-height-m 0.45 :support-half-length-m 0.30 :max-time-s 3600.0}
+   :sweep {:param :payload-kg :values [15.0 45.0 90.0 150.0 250.0]}
+   :quantity :cycle-time-s
+   :limit {:max 90.0 :basis "estimate: one dock-to-custody leg inside the delivery hand-over window"}
+   :boundary {:lo 1.0 :hi 1000.0}}
+  {:id :mandate-file-from-top-shelf
+   :kind :manipulator
+   :procedure "arm pulls a mandate file (or a bundle of them) from the top bay of compact shelving down to the scanning table"
+   :params {:l1-m 0.50 :l2-m 0.45 :m1-kg 4.0 :m2-kg 3.0
+            :from [0.30 0.85] :to [0.70 0.10] :duration-s 2.0 :steps 500}
+   :sweep {:param :payload-kg :values [0.5 1.0 2.0 4.0 6.0]}
+   :quantity :peak-tau1-nm
+   :limit {:max 60.0 :basis "estimate: continuous shoulder torque of a light collaborative arm (~5 kg class)"}
+   :boundary {:lo 0.1 :hi 20.0}}
+  {:id :fire-rated-file-cabinet-30min
+   :kind :thermal
+   :procedure "fire-rated filing-cabinet wall (insulating fill) under a 30 min standard fire, then cool-down; the inner face must stay below paper-char temperature"
+   :params {:conductivity-w-mk 0.25 :density-kg-m3 1000.0 :specific-heat-j-kgk 1100.0
+            :hot-curve :iso-834 :h-front-w-m2k 25.0 :h-back-w-m2k 5.0
+            :heating-s 1800.0 :t-cool-c 20.0 :duration-s 7200.0 :nodes 15
+            :threshold-c 177.0}
+   :sweep {:param :thickness-m :values [0.015 0.025 0.035 0.045 0.06]}
+   :quantity :peak-back-c
+   :limit {:max 177.0 :basis "UL 72 Class 350: interior of record-protection equipment must stay below 350 F (177 C) (exposure here is the ISO 834-1 curve, not UL 72's ASTM E119 furnace; fill properties are estimates)"}
+   :boundary {:lo 0.01 :hi 0.1}}]}
