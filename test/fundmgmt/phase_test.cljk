@@ -2,7 +2,7 @@
   "The phase table as executable tests. The invariant this repo cannot
   regress on: `:fee/drawdown`/`:carry/distribute`/`:guideline/disclose`
   may never be a member of any phase's `:auto` set."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [fundmgmt.phase :as phase]))
 
 (deftest fee-drawdown-never-auto-at-any-phase

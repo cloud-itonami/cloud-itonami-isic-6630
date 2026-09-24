@@ -3,7 +3,7 @@
   the Datomic-backed (langchain.db) store satisfy the same contract, the
   same pattern `cloud-itonami-isic-6499`'s `vcfund.store-contract-test`
   / `cloud-itonami-isic-6430`'s `trustfund.store-contract-test` use."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [fundmgmt.store :as store]))
 
 (defn- close? [a b] (< (Math/abs (- (double a) (double b))) 1e-6))
