@@ -15,7 +15,7 @@
   actually drawn for which period, what carry was actually distributed
   for which commitment, off which upstream fact, approved by whom' is
   always a query over an immutable log."
-  (:require #?(:clj  [clojure.edn :as edn]
+  (:require #?(:clj  [kotoba.lang.edn :as edn]
                :cljs [cljs.reader :as edn])
             [fundmgmt.registry :as registry]
             [langchain.db :as d]))
