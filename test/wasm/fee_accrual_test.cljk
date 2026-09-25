@@ -10,7 +10,7 @@
   exported linear memory at fixed offsets before calling main() -- see
   wasm/fee_accrual.kotoba's ns-adjacent header comment for the offset
   layout and the fixed-point (rate-bps / years-x100) scaling rationale."
-  (:require [clojure.java.io :as io]
+  (:require [kotoba.io :as io]
             [kotoba.test :refer [deftest is testing]]
             [kototama.contract :as contract]
             [kototama.tender :as tender]))
